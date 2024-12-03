@@ -1,0 +1,29 @@
+name: test
+
+on:
+  push:
+    paths-ignore:
+      - "**.md"
+    branches:
+      - main
+      - develop
+  pull_request:
+    paths-ignore:
+      - "**.md"
+    branches:
+      - main
+      - develop
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        rust: [1.76.0, stable]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+      - run: cargo test

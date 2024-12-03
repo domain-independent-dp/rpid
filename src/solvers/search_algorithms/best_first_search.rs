@@ -1,0 +1,327 @@
+use super::search::{ExpansionResult, Search, SearchBase, SearchParameters, Solution};
+use super::search_nodes::SearchNode;
+use crate::dp::{Dominance, Dp};
+use crate::timer::Timer;
+use std::collections::BinaryHeap;
+use std::fmt::Display;
+use std::hash::Hash;
+use std::rc::Rc;
+
+/// Best-first search.
+pub struct BestFirstSearch<D, C, K, N, F, G> {
+    base: SearchBase<D, C, K, N, F, G>,
+    open: BinaryHeap<Rc<N>>,
+    timer: Timer,
+}
+
+impl<D, C, K, N, F, G, S> BestFirstSearch<D, C, K, N, F, G>
+where
+    D: Dp<State = S, CostType = C> + Dominance<State = S, Key = K>,
+    C: Ord + Copy + Display,
+    K: Hash + Eq,
+    N: Ord + SearchNode<DpData = D, State = S, CostType = C>,
+    F: FnMut(&D, S, C, usize, &N, Option<C>, Option<&N>) -> Option<N>,
+    G: FnMut(&D, &N) -> Option<(C, Vec<usize>)>,
+{
+    /// Creates a new instance of the best-first search algorithm.
+    ///
+    /// `root_node_constructor` is a function that constructs a root search node from the given state and primal bound.
+    ///
+    /// `node_constructor` is a function that constructs a new search node from the given state,
+    /// cost, transition, parent node, and primal bound.
+    ///
+    /// `solution_checker` is a function that checks whether the given node is a solution
+    /// and returns the cost and transitions if it is.
+    pub fn new(
+        dp: D,
+        root_node_constructor: impl FnOnce(&D, Option<C>) -> Option<N>,
+        node_constructor: F,
+        solution_checker: G,
+        parameters: SearchParameters<C>,
+    ) -> Self {
+        let mut timer = parameters
+            .time_limit
+            .map(Timer::with_time_limit)
+            .unwrap_or_default();
+
+        let mut open = BinaryHeap::with_capacity(1);
+        let callback = |node| {
+            open.push(node);
+        };
+        let base = SearchBase::new(
+            dp,
+            root_node_constructor,
+            node_constructor,
+            solution_checker,
+            callback,
+            parameters,
+        );
+
+        timer.stop();
+
+        Self { base, open, timer }
+    }
+}
+
+impl<D, C, K, N, F, G, S> Search for BestFirstSearch<D, C, K, N, F, G>
+where
+    D: Dp<State = S, CostType = C> + Dominance<State = S, Key = K>,
+    C: Ord + Copy + Display,
+    K: Hash + Eq,
+    N: Ord + SearchNode<DpData = D, State = S, CostType = C>,
+    F: FnMut(&D, S, C, usize, &N, Option<C>, Option<&N>) -> Option<N>,
+    G: FnMut(&D, &N) -> Option<(C, Vec<usize>)>,
+{
+    type CostType = C;
+
+    fn search_next(&mut self) -> (Solution<C>, bool) {
+        self.timer.start();
+
+        if self.base.is_terminated() {
+            self.timer.stop();
+
+            return (self.base.get_solution().clone(), true);
+        }
+
+        while let Some(node) = self.open.pop() {
+            if self.timer.check_time_limit() {
+                self.base.notify_time_limit_reached(&self.timer);
+            }
+
+            if N::ordered_by_bound() || self.open.is_empty() {
+                if let Some(bound) = node.get_bound(self.base.get_dp()) {
+                    self.base.update_dual_bound_if_better(bound, &self.timer);
+                }
+            }
+
+            let mut callback = |node| {
+                self.open.push(node);
+            };
+
+            let result = self.base.expand(&node, &mut callback, &self.timer);
+
+            match result {
+                ExpansionResult::PrunedByBound if N::ordered_by_bound() => {
+                    self.open.clear();
+                }
+                ExpansionResult::Solution(cost, transitions) => {
+                    let mut solution = self.base.get_solution().clone();
+                    solution.cost = Some(cost);
+                    solution.transitions = transitions;
+                    solution.time = self.timer.get_elapsed_time();
+                    self.timer.stop();
+
+                    return (solution, self.base.is_terminated());
+                }
+                _ => {}
+            }
+
+            if self.base.is_terminated() {
+                self.timer.stop();
+
+                return (self.base.get_solution().clone(), true);
+            }
+        }
+
+        self.base.notify_finished(&self.timer);
+        self.timer.stop();
+
+        (self.base.get_solution().clone(), true)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::Cell;
+    use std::cmp::Ordering;
+
+    #[derive(PartialEq, Eq)]
+    struct MockDp(i32);
+
+    impl Dp for MockDp {
+        type State = i32;
+        type CostType = i32;
+
+        fn get_target(&self) -> Self::State {
+            self.0
+        }
+
+        fn get_successors(
+            &self,
+            state: &Self::State,
+        ) -> impl IntoIterator<Item = (Self::State, Self::CostType, usize)> {
+            vec![(*state - 1, 1, 1)]
+        }
+
+        fn get_base_cost(&self, state: &Self::State) -> Option<Self::CostType> {
+            if *state <= 0 {
+                Some(0)
+            } else {
+                None
+            }
+        }
+    }
+
+    impl Dominance for MockDp {
+        type State = i32;
+        type Key = i32;
+
+        fn get_key(&self, state: &Self::State) -> Self::Key {
+            *state
+        }
+    }
+
+    struct MockNode(i32, i32, Cell<bool>, Vec<usize>);
+
+    impl SearchNode for MockNode {
+        type DpData = MockDp;
+        type State = i32;
+        type CostType = i32;
+
+        fn get_state(&self, _: &Self::DpData) -> &Self::State {
+            &self.0
+        }
+
+        fn get_state_mut(&mut self, _: &Self::DpData) -> &mut Self::State {
+            &mut self.0
+        }
+
+        fn get_cost(&self, _: &Self::DpData) -> Self::CostType {
+            self.1
+        }
+
+        fn get_bound(&self, _: &Self::DpData) -> Option<Self::CostType> {
+            None
+        }
+
+        fn close(&self) {
+            self.2.set(true)
+        }
+
+        fn is_closed(&self) -> bool {
+            self.2.get()
+        }
+
+        fn get_transitions(&self, _: &Self::DpData) -> Vec<usize> {
+            self.3.clone()
+        }
+    }
+
+    impl PartialEq for MockNode {
+        fn eq(&self, other: &Self) -> bool {
+            self.1 == other.1
+        }
+    }
+
+    impl Eq for MockNode {}
+
+    impl Ord for MockNode {
+        fn cmp(&self, other: &Self) -> Ordering {
+            other.1.cmp(&self.1)
+        }
+    }
+
+    impl PartialOrd for MockNode {
+        fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+            Some(self.cmp(other))
+        }
+    }
+
+    #[test]
+    fn test_search() {
+        let dp = MockDp(2);
+        let root_node_constructor = |dp: &MockDp, _| {
+            Some(MockNode(
+                dp.get_target(),
+                dp.get_identity_weight(),
+                Cell::new(false),
+                Vec::new(),
+            ))
+        };
+        let node_constructor =
+            |_: &_, state, cost, transition, parent: &MockNode, _, _: Option<&_>| {
+                let mut transitions = parent.3.clone();
+                transitions.push(transition);
+                Some(MockNode(state, cost, Cell::new(false), transitions))
+            };
+        let solution_checker = |dp: &MockDp, node: &MockNode| {
+            dp.get_base_cost(node.get_state(dp)).map(|cost| {
+                (
+                    dp.combine_cost_weights(node.get_cost(dp), cost),
+                    node.3.clone(),
+                )
+            })
+        };
+        let parameters = SearchParameters {
+            quiet: true,
+            ..Default::default()
+        };
+
+        let mut search = BestFirstSearch::new(
+            dp,
+            root_node_constructor,
+            node_constructor,
+            solution_checker,
+            parameters,
+        );
+
+        let solution = search.search();
+        assert_eq!(solution.cost, Some(2));
+        assert_eq!(solution.transitions, vec![1, 1]);
+        assert_eq!(solution.best_bound, Some(2));
+        assert!(solution.is_optimal);
+        assert!(!solution.is_infeasible);
+        assert!(!solution.is_time_limit_reached);
+        assert!(!solution.is_expansion_limit_reached);
+    }
+
+    #[test]
+    fn test_search_infeasible() {
+        let dp = MockDp(2);
+        let root_node_constructor = |dp: &MockDp, _| {
+            Some(MockNode(
+                dp.get_target(),
+                dp.get_identity_weight(),
+                Cell::new(false),
+                Vec::new(),
+            ))
+        };
+        let node_constructor =
+            |_: &_, state, cost, transition, parent: &MockNode, _, _: Option<&_>| {
+                let mut transitions = parent.3.clone();
+                transitions.push(transition);
+                Some(MockNode(state, cost, Cell::new(false), transitions))
+            };
+        let solution_checker = |dp: &MockDp, node: &MockNode| {
+            dp.get_base_cost(node.get_state(dp)).map(|cost| {
+                (
+                    dp.combine_cost_weights(node.get_cost(dp), cost),
+                    node.3.clone(),
+                )
+            })
+        };
+        let parameters = SearchParameters {
+            primal_bound: Some(2),
+            quiet: true,
+            ..Default::default()
+        };
+
+        let mut search = BestFirstSearch::new(
+            dp,
+            root_node_constructor,
+            node_constructor,
+            solution_checker,
+            parameters,
+        );
+
+        let solution = search.search();
+        assert_eq!(solution.cost, None);
+        assert_eq!(solution.transitions, vec![]);
+        assert_eq!(solution.best_bound, None);
+        assert!(!solution.is_optimal);
+        assert!(solution.is_infeasible);
+        assert!(!solution.is_time_limit_reached);
+        assert!(!solution.is_expansion_limit_reached);
+    }
+}
