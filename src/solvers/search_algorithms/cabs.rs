@@ -99,11 +99,10 @@ where
         {
             if !self.parameters.quiet {
                 println!(
-                    "New dual bound: {}, expanded: {}, generated: {}, elapsed time: {}s.",
-                    dual_bound,
-                    self.solution.expanded,
-                    self.solution.generated,
-                    self.timer.get_elapsed_time()
+                    "New dual bound: {dual_bound}, expanded: {expanded}, generated: {generated}, elapsed time: {time}s.",
+                    expanded = self.solution.expanded,
+                    generated = self.solution.generated,
+                    time = self.timer.get_elapsed_time()
                 );
             }
 
