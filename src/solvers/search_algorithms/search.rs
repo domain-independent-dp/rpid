@@ -54,7 +54,7 @@ impl<C> SearchParameters<C> {
 
 /// Solution information.
 #[derive(Clone, PartialEq, Debug)]
-pub struct Solution<C> {
+pub struct Solution<C, L> {
     /// Cost of the solution.
     pub cost: Option<C>,
     /// Best dual bound found (lower/upper bound for minimization/maximization).
@@ -64,7 +64,7 @@ pub struct Solution<C> {
     /// Whether the model is infeasible.
     pub is_infeasible: bool,
     /// Transitions of the solution.
-    pub transitions: Vec<usize>,
+    pub transitions: Vec<L>,
     /// Number of nodes expanded.
     pub expanded: usize,
     /// Number of nodes generated.
@@ -77,7 +77,7 @@ pub struct Solution<C> {
     pub is_expansion_limit_reached: bool,
 }
 
-impl<C> Default for Solution<C> {
+impl<C, L> Default for Solution<C, L> {
     fn default() -> Self {
         Self {
             cost: None,
@@ -97,14 +97,15 @@ impl<C> Default for Solution<C> {
 /// Search trait.
 pub trait Search {
     type CostType;
+    type Label;
 
     /// Searches for the next solution.
     ///
     /// The second return value indicates whether the search is terminated.
-    fn search_next(&mut self) -> (Solution<Self::CostType>, bool);
+    fn search_next(&mut self) -> (Solution<Self::CostType, Self::Label>, bool);
 
     /// Performs search until termination.
-    fn search(&mut self) -> Solution<Self::CostType> {
+    fn search(&mut self) -> Solution<Self::CostType, Self::Label> {
         loop {
             let (solution, terminated) = self.search_next();
 
@@ -119,43 +120,45 @@ pub trait Search {
 ///
 /// - `D` is the DP model.
 /// - `C` is the cost type associated with the DP model.
+/// - `L` is the transition label type associated with the DP model.
 /// - `K` is the key type associated with dominance detection.
 /// - `N` is the search node type.
 /// - `F` is the node constructor, which generates a new node.
 /// - `G` is the solution checker, which checks whether a node is a solution.
-pub struct SearchBase<D, C, K, N, F, G> {
+pub struct SearchBase<D, C, L, K, N, F, G> {
     dp: D,
     node_constructor: F,
     solution_checker: G,
     parameters: SearchParameters<C>,
     registry: StateRegistry<K, N>,
     primal_bound: Option<C>,
-    solution: Solution<C>,
+    solution: Solution<C, L>,
 }
 
 /// Expansion result.
 #[derive(Clone, PartialEq, Debug)]
-pub enum ExpansionResult<C> {
+pub enum ExpansionResult<C, L> {
     /// Node is closed.
     Closed,
     /// Node is pruned by bound.
     PrunedByBound,
     /// Solution found.
-    Solution(C, Vec<usize>),
+    Solution(C, Vec<L>),
     /// Solution found but pruned since it is not better.
     SolutionPruned,
     /// Node is expanded.
     Expanded,
 }
 
-impl<D, C, K, N, F, G, S> SearchBase<D, C, K, N, F, G>
+impl<D, C, L, K, N, F, G, S> SearchBase<D, C, L, K, N, F, G>
 where
-    D: Dp<State = S, CostType = C> + Dominance<State = S, Key = K>,
+    D: Dp<State = S, CostType = C, Label = L> + Dominance<State = S, Key = K>,
     C: Ord + Copy + Display,
+    L: Copy,
     K: Hash + Eq,
     N: Ord + SearchNode<DpData = D, State = S, CostType = C>,
-    F: FnMut(&D, S, C, usize, &N, Option<C>, Option<&N>) -> Option<N>,
-    G: FnMut(&D, &N) -> Option<(C, Vec<usize>)>,
+    F: FnMut(&D, S, C, L, &N, Option<C>, Option<&N>) -> Option<N>,
+    G: FnMut(&D, &N) -> Option<(C, Vec<L>)>,
 {
     /// Creates a new search base.
     ///
@@ -215,7 +218,7 @@ where
         node: &N,
         callback: &mut impl FnMut(Rc<N>),
         timer: &Timer,
-    ) -> ExpansionResult<C> {
+    ) -> ExpansionResult<C, L> {
         if node.is_closed() {
             return ExpansionResult::Closed;
         }
@@ -400,7 +403,7 @@ where
     }
 
     /// Returns the solution.
-    pub fn get_solution(&self) -> &Solution<C> {
+    pub fn get_solution(&self) -> &Solution<C, L> {
         &self.solution
     }
 }
@@ -417,6 +420,7 @@ mod tests {
     impl Dp for MockDp {
         type State = i32;
         type CostType = i32;
+        type Label = usize;
 
         fn get_target(&self) -> Self::State {
             self.0
@@ -466,6 +470,7 @@ mod tests {
         type DpData = MockDp;
         type State = i32;
         type CostType = i32;
+        type Label = usize;
 
         fn get_state(&self, _: &Self::DpData) -> &Self::State {
             &self.0
@@ -491,7 +496,7 @@ mod tests {
             self.2.get()
         }
 
-        fn get_transitions(&self, _: &Self::DpData) -> Vec<usize> {
+        fn get_transitions(&self, _: &Self::DpData) -> Vec<Self::Label> {
             self.3.clone()
         }
     }
@@ -520,8 +525,9 @@ mod tests {
 
     impl Search for MockSearch {
         type CostType = i32;
+        type Label = usize;
 
-        fn search_next(&mut self) -> (Solution<Self::CostType>, bool) {
+        fn search_next(&mut self) -> (Solution<Self::CostType, Self::Label>, bool) {
             (
                 Solution {
                     cost: Some(42),

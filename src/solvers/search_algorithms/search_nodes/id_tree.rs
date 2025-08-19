@@ -2,14 +2,17 @@ use std::rc::Rc;
 
 /// Tree data structure to store a sequence of ids.
 #[derive(Clone, Debug, Default)]
-pub struct IdTree {
-    id: Option<usize>,
+pub struct IdTree<T> {
+    id: Option<T>,
     parent: Option<Rc<Self>>,
 }
 
-impl IdTree {
+impl<T> IdTree<T>
+where
+    T: Copy,
+{
     /// Creates a child node.
-    pub fn create_child(node: Rc<Self>, id: usize) -> Self {
+    pub fn create_child(node: Rc<Self>, id: T) -> Self {
         Self {
             id: Some(id),
             parent: Some(node.clone()),
@@ -17,7 +20,7 @@ impl IdTree {
     }
 
     /// Returns the path from the root to the current node.
-    pub fn get_path(&self) -> Vec<usize> {
+    pub fn get_path(&self) -> Vec<T> {
         let mut path = Vec::new();
         let mut current = self;
 

@@ -64,13 +64,14 @@ where
 ///
 /// The first field is the time, second is the cost, third is the bound, fourth is the transitions,
 /// fifth is the expanded, and sixth is the generated.
-pub fn run_solver_and_dump_solution_history<S, C>(
+pub fn run_solver_and_dump_solution_history<S, C, L>(
     solver: &mut S,
     filename: &str,
-) -> Result<Solution<C>, Box<dyn Error>>
+) -> Result<Solution<C, L>, Box<dyn Error>>
 where
-    S: Search<CostType = C>,
+    S: Search<CostType = C, Label = L>,
     C: Display + Copy,
+    L: Display,
 {
     let mut file = OpenOptions::new()
         .create(true)
@@ -115,7 +116,7 @@ where
 }
 
 /// Print the cost, bound, and statistics of a solution.
-pub fn print_solution_statistics<C>(solution: &Solution<C>)
+pub fn print_solution_statistics<C, L>(solution: &Solution<C, L>)
 where
     C: Copy + Display,
 {

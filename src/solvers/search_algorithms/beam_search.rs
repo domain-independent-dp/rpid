@@ -194,20 +194,21 @@ where
 ///
 /// `solution_checker` is a function that checks whether the given node is a solution
 /// and returns the cost and transitions if it is.
-pub fn beam_search<D, S, C, K, N, F, G>(
+pub fn beam_search<D, S, C, L, K, N, F, G>(
     dp: &D,
     root_node: N,
     mut node_constructor: F,
     mut solution_checker: G,
     parameters: &BeamSearchParameters<C>,
-) -> Solution<C>
+) -> Solution<C, L>
 where
-    D: Dp<State = S, CostType = C> + Dominance<State = S, Key = K>,
+    D: Dp<State = S, CostType = C, Label = L> + Dominance<State = S, Key = K>,
     C: Ord + Copy + Display,
+    L: Copy,
     K: Hash + Eq,
-    N: Ord + SearchNode<DpData = D, State = S, CostType = C>,
-    F: FnMut(&D, S, C, usize, &N, Option<C>) -> Option<N>,
-    G: FnMut(&D, &N) -> Option<(C, Vec<usize>)>,
+    N: Ord + SearchNode<DpData = D, State = S, CostType = C, Label = L>,
+    F: FnMut(&D, S, C, L, &N, Option<C>) -> Option<N>,
+    G: FnMut(&D, &N) -> Option<(C, Vec<L>)>,
 {
     let timer = parameters
         .search_parameters
@@ -413,6 +414,7 @@ mod tests {
     impl Dp for MockDp {
         type State = i32;
         type CostType = i32;
+        type Label = usize;
 
         fn get_target(&self) -> Self::State {
             self.0
@@ -421,7 +423,7 @@ mod tests {
         fn get_successors(
             &self,
             state: &Self::State,
-        ) -> impl IntoIterator<Item = (Self::State, Self::CostType, usize)> {
+        ) -> impl IntoIterator<Item = (Self::State, Self::CostType, Self::Label)> {
             vec![(*state - 1, 1, 1)]
         }
 
@@ -445,6 +447,7 @@ mod tests {
         type DpData = MockDp;
         type State = i32;
         type CostType = i32;
+        type Label = usize;
 
         fn get_state(&self, _: &Self::DpData) -> &Self::State {
             &self.0
@@ -470,7 +473,7 @@ mod tests {
             self.2.get()
         }
 
-        fn get_transitions(&self, _: &Self::DpData) -> Vec<usize> {
+        fn get_transitions(&self, _: &Self::DpData) -> Vec<Self::Label> {
             self.3.clone()
         }
     }

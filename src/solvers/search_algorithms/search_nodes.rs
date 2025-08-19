@@ -19,6 +19,8 @@ pub trait SearchNode: Sized {
     type State;
     /// Type of the cost.
     type CostType;
+    /// Type of the transition label.
+    type Label;
 
     /// Returns the state of the node.
     fn get_state(&self, dp: &Self::DpData) -> &Self::State;
@@ -39,10 +41,10 @@ pub trait SearchNode: Sized {
     fn close(&self);
 
     /// Returns the transitions to reach the node.
-    fn get_transitions(&self, dp: &Self::DpData) -> Vec<usize>;
+    fn get_transitions(&self, dp: &Self::DpData) -> Vec<Self::Label>;
 
     /// Checks if the node is a solution and returns the cost and transitions if it is.
-    fn check_solution(&self, dp: &Self::DpData) -> Option<(Self::CostType, Vec<usize>)> {
+    fn check_solution(&self, dp: &Self::DpData) -> Option<(Self::CostType, Vec<Self::Label>)> {
         let state = self.get_state(dp);
         let cost = self.get_cost(dp);
 
@@ -73,6 +75,7 @@ mod tests {
     impl Dp for MockDp {
         type State = i32;
         type CostType = i32;
+        type Label = usize;
 
         fn get_target(&self) -> Self::State {
             2
@@ -81,16 +84,12 @@ mod tests {
         fn get_successors(
             &self,
             _: &Self::State,
-        ) -> impl IntoIterator<Item = (Self::State, Self::CostType, usize)> {
+        ) -> impl IntoIterator<Item = (Self::State, Self::CostType, Self::Label)> {
             vec![]
         }
 
         fn get_base_cost(&self, state: &Self::State) -> Option<Self::CostType> {
-            if *state == 0 {
-                Some(0)
-            } else {
-                None
-            }
+            if *state == 0 { Some(0) } else { None }
         }
 
         fn combine_cost_weights(&self, a: Self::CostType, b: Self::CostType) -> Self::CostType {
@@ -104,6 +103,7 @@ mod tests {
         type DpData = MockDp;
         type State = i32;
         type CostType = i32;
+        type Label = usize;
 
         fn get_state(&self, _: &Self::DpData) -> &Self::State {
             &self.0
@@ -127,7 +127,7 @@ mod tests {
 
         fn close(&self) {}
 
-        fn get_transitions(&self, _: &Self::DpData) -> Vec<usize> {
+        fn get_transitions(&self, _: &Self::DpData) -> Vec<Self::Label> {
             vec![0, 1]
         }
     }

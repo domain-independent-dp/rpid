@@ -39,8 +39,10 @@ pub enum OptimizationMode {
 /// impl Dp for Tsp {
 ///     type State = TspState;
 ///     type CostType = i32;
+///     type Label = usize;
 ///
-///     fn get_target(&self) -> TspState {
+///
+///     fn get_target(&self) -> Self::State {
 ///         let mut unvisited = FixedBitSet::with_capacity(self.c.len());
 ///         unvisited.insert_range(1..);
 ///
@@ -50,7 +52,10 @@ pub enum OptimizationMode {
 ///        }
 ///     }
 ///
-///     fn get_successors(&self, state: &TspState) -> impl IntoIterator<Item = (TspState, i32, usize)> {
+///     fn get_successors(
+///         &self,
+///         state: &Self::State,
+///     ) -> impl IntoIterator<Item = (Self::State, Self::CostType, Self::Label)> {
 ///         state.unvisited.ones().map(|next| {
 ///             let mut unvisited = state.unvisited.clone();
 ///             unvisited.remove(next);
@@ -65,7 +70,7 @@ pub enum OptimizationMode {
 ///         })
 ///     }
 ///
-///     fn get_base_cost(&self, state: &TspState) -> Option<i32> {
+///     fn get_base_cost(&self, state: &Self::State) -> Option<Self::CostType> {
 ///         if state.unvisited.is_clear() {
 ///             Some(self.c[state.current][0])
 ///         } else {
@@ -106,20 +111,22 @@ pub trait Dp {
     type State;
     /// Type of the cost. Usually, `i32` or `f64`.
     type CostType: PartialOrd + Add<Output = Self::CostType> + Zero;
+    /// Type of the transition label. Usually, an unsigned integer type.
+    type Label;
 
     /// Gets the target (initial) state.
     fn get_target(&self) -> Self::State;
 
     /// Gets the successors of a state.
     ///
-    /// The easiest way to implement this method is to return a vector (`Vec<(Self::State, Self::CostType, usize)>`)
-    /// or an array ([`(Self::State, Self::CostType, usize); N]`), where the first element of a tuple is the successor state,
-    /// the second element is the cost weight of the transition, and the third element is the index of the transition.
+    /// The easiest way to implement this method is to return a vector (`Vec<(Self::State, Self::CostType, Self::Label)>`)
+    /// or an array ([`(Self::State, Self::CostType, Self::Label); N]`), where the first element of a tuple is the successor state,
+    /// the second element is the cost weight of the transition, and the third element is the label of the transition.
     /// However, by returning an iterator, you can avoid allocating memory for the successors.
     fn get_successors(
         &self,
         state: &Self::State,
-    ) -> impl IntoIterator<Item = (Self::State, Self::CostType, usize)>;
+    ) -> impl IntoIterator<Item = (Self::State, Self::CostType, Self::Label)>;
 
     /// Checks if a state is a base (goal) state and returns the base cost if it is.
     fn get_base_cost(&self, state: &Self::State) -> Option<Self::CostType>;
@@ -182,7 +189,7 @@ pub trait Dp {
 ///     type State = TspState;
 ///     type Key = (FixedBitSet, usize);
 ///
-///     fn get_key(&self, state: &TspState) -> Self::Key {
+///     fn get_key(&self, state: &Self::State) -> Self::Key {
 ///         (state.unvisited.clone(), state.current)
 ///     }
 /// }
@@ -248,7 +255,7 @@ pub trait Dominance {
 ///     type State = TspState;
 ///     type CostType = i32;
 ///
-///     fn get_dual_bound(&self, _: &TspState) -> Option<i32> {
+///     fn get_dual_bound(&self, _: &Self::State) -> Option<Self::CostType> {
 ///         Some(0)
 ///     }
 /// }
@@ -297,6 +304,7 @@ mod tests {
     impl Dp for MockDp {
         type State = i32;
         type CostType = i32;
+        type Label = usize;
 
         fn get_target(&self) -> Self::State {
             0
@@ -305,7 +313,7 @@ mod tests {
         fn get_successors(
             &self,
             _: &Self::State,
-        ) -> impl IntoIterator<Item = (Self::State, Self::CostType, usize)> {
+        ) -> impl IntoIterator<Item = (Self::State, Self::CostType, Self::Label)> {
             vec![]
         }
 
