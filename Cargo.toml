@@ -1,8 +1,8 @@
 [package]
 name = "rpid"
 version = "0.1.0"
-edition = "2021"
-rust-version = "1.76"
+edition = "2024"
+rust-version = "1.85"
 description = "Rust Programmable Interface for Domain-Independent Dynamic Programming (RPID)"
 license = "MIT OR Apache-2.0"
 authors = ["Ryo Kuroiwa <kuroiwa@nii.ac.jp>"]
