@@ -2,10 +2,10 @@
 //!
 //! The algorithms in this module are useful for preprocessing and relaxation.
 
-use num_traits::{One, Zero};
+use num_traits::Zero;
+use ordered_float::OrderedFloat;
 use std::cmp::Ordering;
-use std::iter::Sum;
-use std::ops::{Add, Div, Rem, SubAssign};
+use std::ops::{Add, SubAssign};
 
 /// Transpose an m x n matrix.
 ///
@@ -834,9 +834,8 @@ where
         .enumerate()
         .map(|(i, (w, v))| (i, w, v))
         .collect::<Vec<_>>();
-    sorted_weight_value_pairs.sort_by(|&a, &b| {
-        (f64::from(a.1) * f64::from(b.2)).total_cmp(&(f64::from(a.2) * f64::from(b.1)))
-    });
+    sorted_weight_value_pairs
+        .sort_by_key(|&(_, w, v)| OrderedFloat::from(f64::from(w) / f64::from(v)));
 
     sorted_weight_value_pairs
 }
@@ -854,6 +853,7 @@ where
 /// # Examples
 ///
 /// ```
+/// use approx::assert_relative_eq;
 /// use rpid::algorithms;
 ///
 /// let weights = [1, 2, 4];
@@ -861,13 +861,12 @@ where
 ///
 /// let sorted_items = algorithms::sort_knapsack_items_by_efficiency(&weights, &values);
 /// let sorted_weight_value_pairs = sorted_items.iter().map(|&(_, w, v)| (w, v));
-/// let profit = algorithms::compute_fractional_knapsack_profit(5, sorted_weight_value_pairs, 1e-6);
-/// assert_eq!(profit, 7.0);
+/// let profit = algorithms::compute_fractional_knapsack_profit(5, sorted_weight_value_pairs);
+/// assert_relative_eq!(profit, 7.5);
 /// ```
 pub fn compute_fractional_knapsack_profit<T>(
     capacity: T,
     sorted_weight_value_pairs: impl Iterator<Item = (T, T)>,
-    epsilon: f64,
 ) -> f64
 where
     T: PartialOrd + SubAssign + Copy,
@@ -886,47 +885,12 @@ where
         }
     }
 
-    f64::floor(profit + epsilon)
-}
-
-/// Computes the number of bins to pack weighted items, allowing fractions of items to be taken.
-///
-/// This bound is sometimes called LB1.
-///
-/// `epsilon` is the upper bound on the difference between two values to be considered equal.
-/// If the cost of the fractional bin packing is `c`, the number of bins is `ceil(c - epsilon)`.
-///
-/// # Examples
-///
-/// ```
-/// use rpid::algorithms;
-///
-/// let weights = [2, 2, 3, 4, 5];
-///
-/// let n_bins = algorithms::compute_fractional_bin_packing_cost(5, weights.iter().sum(), 0);
-/// assert_eq!(n_bins, 4.0);
-/// ```
-pub fn compute_fractional_bin_packing_cost<T>(capacity: T, weight_sum: T, epsilon: T) -> f64
-where
-    T: Sum<T> + Rem<Output = T> + Div<Output = T> + PartialOrd + Copy + One,
-    f64: From<T>,
-{
-    if capacity <= epsilon {
-        return f64::INFINITY;
-    }
-
-    if weight_sum % capacity <= epsilon {
-        f64::from(weight_sum / capacity).trunc()
-    } else {
-        f64::from(weight_sum / capacity).trunc() + 1.0
-    }
+    profit
 }
 
 /// Computes the number of bins to pack items, whose weights are at least half of the capacity.
 ///
 /// This bound is sometimes called LB2.
-///
-/// `epsilon` is the upper bound on the difference between two values to be considered equal.
 ///
 /// # Examples
 ///
@@ -935,34 +899,31 @@ where
 ///
 /// let weights = [4, 2, 3, 5, 4, 3, 3];
 ///
-/// let n_bins = algorithms::compute_bin_packing_lb2(6, weights.iter().copied(), 0);
-/// assert_eq!(n_bins, 5.0);
+/// let n_bins = algorithms::compute_bin_packing_lb2(6, weights.iter().copied());
+/// assert_eq!(n_bins, 5);
 /// ```
-pub fn compute_bin_packing_lb2<T>(capacity: T, weights: impl Iterator<Item = T>, epsilon: T) -> f64
+pub fn compute_bin_packing_lb2<T>(capacity: T, weights: impl Iterator<Item = T>) -> usize
 where
     T: PartialOrd + Add<Output = T> + Copy,
 {
-    if capacity <= epsilon {
-        return f64::INFINITY;
-    }
-
     let mut n_more_than_half = 0;
     let mut n_half = 0;
 
     weights.for_each(|w| {
         let twice = w + w;
 
-        if twice > capacity + epsilon {
+        if twice > capacity {
             n_more_than_half += 1;
-        } else if twice + epsilon >= capacity {
+        }
+        if twice == capacity {
             n_half += 1;
         }
     });
 
     if n_half % 2 == 0 {
-        (n_more_than_half + n_half / 2) as f64
+        n_more_than_half + n_half / 2
     } else {
-        (n_more_than_half + n_half / 2 + 1) as f64
+        n_more_than_half + n_half / 2 + 1
     }
 }
 
@@ -970,8 +931,6 @@ where
 ///
 /// This bound is sometimes called LB3.
 ///
-/// `epsilon` is the upper bound on the difference between two values to be considered equal.
-///
 /// # Examples
 ///
 /// ```
@@ -979,41 +938,37 @@ where
 ///
 /// let weights = [4, 2, 3, 5, 4, 3, 3];
 ///
-/// let n_bins = algorithms::compute_bin_packing_lb3(6, weights.iter().copied(), 0);
-/// assert_eq!(n_bins, 5.0);
+/// let n_bins = algorithms::compute_bin_packing_lb3(6, weights.iter().copied());
+/// assert_eq!(n_bins, 5);
 /// ```
-pub fn compute_bin_packing_lb3<T>(capacity: T, weights: impl Iterator<Item = T>, epsilon: T) -> f64
+pub fn compute_bin_packing_lb3<T>(capacity: T, weights: impl Iterator<Item = T>) -> usize
 where
     T: PartialOrd + Add<Output = T> + Copy,
 {
-    if capacity <= epsilon {
-        return f64::INFINITY;
-    }
-
     let twice_capacity = capacity + capacity;
 
     let weight_sum = weights
         .map(|w| {
             let thrice = w + w + w;
 
-            if thrice > twice_capacity + epsilon {
+            if thrice > twice_capacity {
                 6
-            } else if thrice + epsilon >= twice_capacity {
+            } else if thrice >= twice_capacity {
                 4
-            } else if thrice > capacity + epsilon {
+            } else if thrice > capacity {
                 3
-            } else if thrice + epsilon >= capacity {
+            } else if thrice >= capacity {
                 2
             } else {
                 0
             }
         })
-        .sum::<i32>();
+        .sum::<usize>();
 
     if weight_sum % 6 == 0 {
-        (weight_sum / 6) as f64
+        weight_sum / 6
     } else {
-        (weight_sum / 6 + 1) as f64
+        weight_sum / 6 + 1
     }
 }
 
@@ -1359,8 +1314,8 @@ mod tests {
     fn test_compute_fractional_knapsack_profit() {
         let sorted_weight_value_pairs = [(1, 2), (2, 3), (4, 5), (1, 1)];
         assert_relative_eq!(
-            compute_fractional_knapsack_profit(5, sorted_weight_value_pairs.into_iter(), 1e-6),
-            7.0
+            compute_fractional_knapsack_profit(5, sorted_weight_value_pairs.into_iter()),
+            7.5
         );
     }
 
@@ -1368,64 +1323,32 @@ mod tests {
     fn test_compute_fractional_knapsack_profit_empty() {
         let sorted_weight_value_pairs: [(i32, i32); 0] = [];
         assert_relative_eq!(
-            compute_fractional_knapsack_profit(0, sorted_weight_value_pairs.into_iter(), 1e-6),
+            compute_fractional_knapsack_profit(0, sorted_weight_value_pairs.into_iter()),
             0.0
         );
     }
 
     #[test]
-    fn test_compute_fractional_bin_packing_cost() {
-        let weights = [2, 2, 3, 4, 5];
-        assert_relative_eq!(
-            compute_fractional_bin_packing_cost(5, weights.iter().sum(), 0),
-            4.0
-        );
-    }
-
-    #[test]
-    fn test_compute_fractional_bin_packing_cost_empty() {
-        assert_relative_eq!(compute_fractional_bin_packing_cost(5, 0, 0), 0.0);
-    }
-
-    #[test]
-    fn test_compute_fractional_bin_packing_cost_infinity() {
-        let weights = [2, 2, 3, 4, 5];
-        assert!(compute_fractional_bin_packing_cost(0, weights.iter().sum(), 0).is_infinite());
-    }
-
-    #[test]
     fn test_compute_bin_packing_lb2() {
         let weights = [4, 2, 3, 5, 4, 3, 3];
-        assert_relative_eq!(compute_bin_packing_lb2(6, weights.into_iter(), 0), 5.0);
+        assert_eq!(compute_bin_packing_lb2(6, weights.into_iter()), 5);
     }
 
     #[test]
     fn test_compute_bin_packing_lb2_empty() {
         let weights: [i32; 0] = [];
-        assert_relative_eq!(compute_bin_packing_lb2(6, weights.into_iter(), 0), 0.0);
-    }
-
-    #[test]
-    fn test_compute_bin_packing_lb2_infinity() {
-        let weights = [4, 2, 3, 5, 4, 3, 3];
-        assert!(compute_bin_packing_lb2(0, weights.into_iter(), 0).is_infinite());
+        assert_eq!(compute_bin_packing_lb2(6, weights.into_iter()), 0);
     }
 
     #[test]
     fn test_compute_bin_packing_lb3() {
         let weights = [4, 2, 3, 5, 4, 3, 3];
-        assert_relative_eq!(compute_bin_packing_lb3(6, weights.into_iter(), 0), 5.0);
+        assert_eq!(compute_bin_packing_lb3(6, weights.into_iter()), 5);
     }
 
     #[test]
     fn test_compute_bin_packing_lb3_empty() {
         let weights: [i32; 0] = [];
-        assert_relative_eq!(compute_bin_packing_lb3(6, weights.into_iter(), 0), 0.0);
-    }
-
-    #[test]
-    fn test_compute_bin_packing_lb3_infinity() {
-        let weights = [4, 2, 3, 5, 4, 3, 3];
-        assert!(compute_bin_packing_lb3(0, weights.into_iter(), 0).is_infinite());
+        assert_eq!(compute_bin_packing_lb3(6, weights.into_iter()), 0);
     }
 }
