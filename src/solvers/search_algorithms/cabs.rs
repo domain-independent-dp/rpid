@@ -191,11 +191,11 @@ where
 
             if !self.parameters.quiet {
                 println!(
-                    "Searched with beam width {}, expanded: {}, generated: {}, elapsed time: {}s.",
-                    self.beam_width,
-                    self.solution.expanded,
-                    self.solution.generated,
-                    self.timer.get_elapsed_time()
+                    "Searched with beam width {beam_width}, expanded: {expanded}, generated: {generated}, elapsed time: {time}s.",
+                    beam_width = self.beam_width,
+                    expanded = self.solution.expanded,
+                    generated = self.solution.generated,
+                    time = self.timer.get_elapsed_time()
                 );
             }
 
@@ -217,11 +217,11 @@ where
 
                 if !self.parameters.quiet {
                     println!(
-                        "New primal bound {}, expanded: {}, generated: {}, elapsed time: {}s.",
-                        cost,
-                        self.solution.expanded,
-                        self.solution.generated,
-                        self.timer.get_elapsed_time()
+                        "New primal bound: {solution_cost}, expanded: {expanded}, generated: {generated}, elapsed time: {time}s.",
+                        solution_cost = cost,
+                        expanded = self.solution.expanded,
+                        generated = self.solution.generated,
+                        time = self.timer.get_elapsed_time()
                     );
                 }
 
@@ -298,11 +298,7 @@ mod tests {
         }
 
         fn get_base_cost(&self, state: &Self::State) -> Option<Self::CostType> {
-            if *state <= 0 {
-                Some(0)
-            } else {
-                None
-            }
+            if *state <= 0 { Some(0) } else { None }
         }
     }
 

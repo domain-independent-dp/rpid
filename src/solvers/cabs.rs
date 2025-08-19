@@ -284,11 +284,7 @@ mod tests {
         }
 
         fn get_base_cost(&self, state: &Self::State) -> Option<Self::CostType> {
-            if *state <= 0 {
-                Some(0)
-            } else {
-                None
-            }
+            if *state <= 0 { Some(0) } else { None }
         }
     }
 

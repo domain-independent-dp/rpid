@@ -85,19 +85,23 @@ where
             let transitions = solution
                 .transitions
                 .iter()
-                .map(|t| format!("{}", t))
+                .map(|t| format!("{t}"))
                 .collect::<Vec<_>>()
                 .join(" ");
 
             let line = if let Some(bound) = solution.best_bound {
                 format!(
-                    "{}, {}, {}, {}, {}, {}\n",
-                    solution.time, cost, bound, transitions, solution.expanded, solution.generated
+                    "{time}, {cost}, {bound}, {transitions}, {expanded}, {generated}\n",
+                    time = solution.time,
+                    expanded = solution.expanded,
+                    generated = solution.generated
                 )
             } else {
                 format!(
-                    "{}, {}, , {}, {}, {}\n",
-                    solution.time, cost, transitions, solution.expanded, solution.generated
+                    "{time}, {cost}, , {transitions}, {expanded}, {generated}\n",
+                    time = solution.time,
+                    expanded = solution.expanded,
+                    generated = solution.generated
                 )
             };
             file.write_all(line.as_bytes())?;
@@ -116,10 +120,10 @@ where
     C: Copy + Display,
 {
     if let Some(cost) = solution.cost {
-        println!("cost: {}", cost);
+        println!("cost: {cost}");
 
         if solution.is_optimal {
-            println!("optimal cost: {}", cost);
+            println!("optimal cost: {cost}");
         }
     } else {
         println!("No solution is found.");
@@ -130,12 +134,12 @@ where
     }
 
     if let Some(bound) = solution.best_bound {
-        println!("best bound: {}", bound);
+        println!("best bound: {bound}");
     }
 
-    println!("Search time: {}s", solution.time);
-    println!("Expanded: {}", solution.expanded);
-    println!("Generated: {}", solution.generated);
+    println!("Search time: {time}s", time = solution.time);
+    println!("Expanded: {expanded}", expanded = solution.expanded);
+    println!("Generated: {generated}", generated = solution.generated);
 }
 
 #[cfg(test)]

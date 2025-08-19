@@ -1,7 +1,7 @@
 use super::search_nodes::{SearchNode, StateRegistry};
+use crate::Bound;
 use crate::dp::{Dominance, Dp};
 use crate::timer::Timer;
-use crate::Bound;
 use std::fmt::Display;
 use std::hash::Hash;
 use std::rc::Rc;
@@ -233,7 +233,7 @@ where
         if let Some((solution_cost, transitions)) = (self.solution_checker)(&self.dp, node) {
             if self
                 .primal_bound
-                .map_or(true, |bound| self.dp.is_better_cost(solution_cost, bound))
+                .is_none_or(|bound| self.dp.is_better_cost(solution_cost, bound))
             {
                 self.primal_bound = Some(solution_cost);
                 self.solution.cost = Some(solution_cost);
@@ -245,11 +245,10 @@ where
 
                 if !self.parameters.quiet {
                     println!(
-                        "New primal bound: {}, expanded: {}, generated: {}, elapsed time: {}s.",
-                        solution_cost,
-                        self.solution.expanded,
-                        self.solution.generated,
-                        timer.get_elapsed_time()
+                        "New primal bound: {solution_cost}, expanded: {expanded}, generated: {generated}, elapsed time: {time}s.",
+                        expanded = self.solution.expanded,
+                        generated = self.solution.generated,
+                        time = timer.get_elapsed_time()
                     );
                 }
 
@@ -306,7 +305,7 @@ where
         if self
             .parameters
             .expansion_limit
-            .map_or(false, |limit| self.solution.expanded >= limit)
+            .is_some_and(|limit| self.solution.expanded >= limit)
         {
             if !self.parameters.quiet {
                 println!("Expansion limit reached.");
@@ -338,11 +337,10 @@ where
         {
             if !self.parameters.quiet {
                 println!(
-                    "New dual bound: {}, expanded: {}, generated: {}, elapsed time: {}s.",
-                    dual_bound,
-                    self.solution.expanded,
-                    self.solution.generated,
-                    timer.get_elapsed_time()
+                    "New dual bound: {dual_bound}, expanded: {expanded}, generated: {generated}, elapsed time: {time}s.",
+                    expanded = self.solution.expanded,
+                    generated = self.solution.generated,
+                    time = timer.get_elapsed_time()
                 );
             }
 
@@ -432,11 +430,7 @@ mod tests {
         }
 
         fn get_base_cost(&self, state: &Self::State) -> Option<Self::CostType> {
-            if *state <= 0 {
-                Some(0)
-            } else {
-                None
-            }
+            if *state <= 0 { Some(0) } else { None }
         }
     }
 
