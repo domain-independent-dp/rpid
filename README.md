@@ -6,6 +6,10 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
+[API Documentation](https://docs.rs/rpid)
+
+[Model Examples](https://github.com/Kurorororo/didp-rust-models)
+
 ## Example
 
 ```rust
@@ -96,3 +100,9 @@ fn main() {
     assert_eq!(solution.best_bound, Some(6));
 }
 ```
+
+## References
+
+Ryo Kuroiwa and J. Christopher Beck. RPID: Rust Programmable Interface for Domain-Independent Dynamic Programming. In *31st International Conference on Principles and Practice of Constraint Programming (CP 2025)*, volume 340 of Leibniz International Proceedings in Informatics (LIPIcs), pages 23:1-23:21. Schloss Dagstuhl - Leibniz-Zentrum für Informatik, 2025. [doi:10.4230/LIPIcs.CP.2025.23](https://doi.org/10.4230/LIPIcs.CP.2025.23)
+
+
