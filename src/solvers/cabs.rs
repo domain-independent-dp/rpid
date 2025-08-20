@@ -31,8 +31,9 @@ use std::hash::Hash;
 /// impl Dp for Tsp {
 ///     type State = TspState;
 ///     type CostType = i32;
+///     type Label = usize;
 ///
-///     fn get_target(&self) -> TspState {
+///     fn get_target(&self) -> Self::State {
 ///         let mut unvisited = FixedBitSet::with_capacity(self.c.len());
 ///         unvisited.insert_range(1..);
 ///
@@ -42,7 +43,10 @@ use std::hash::Hash;
 ///        }
 ///     }
 ///
-///     fn get_successors(&self, state: &TspState) -> impl IntoIterator<Item = (TspState, i32, usize)> {
+///     fn get_successors(
+///         &self,
+///         state: &Self::State,
+///     ) -> impl IntoIterator<Item = (Self::State, Self::CostType, Self::Label)> {
 ///         state.unvisited.ones().map(|next| {
 ///             let mut unvisited = state.unvisited.clone();
 ///             unvisited.remove(next);
@@ -57,7 +61,7 @@ use std::hash::Hash;
 ///         })
 ///     }
 ///
-///     fn get_base_cost(&self, state: &TspState) -> Option<i32> {
+///     fn get_base_cost(&self, state: &Self::State) -> Option<Self::CostType> {
 ///         if state.unvisited.is_clear() {
 ///             Some(self.c[state.current][0])
 ///         } else {
@@ -70,7 +74,7 @@ use std::hash::Hash;
 ///     type State = TspState;
 ///     type Key = (FixedBitSet, usize);
 ///
-///     fn get_key(&self, state: &TspState) -> Self::Key {
+///     fn get_key(&self, state: &Self::State) -> Self::Key {
 ///         (state.unvisited.clone(), state.current)
 ///     }
 /// }
@@ -79,7 +83,7 @@ use std::hash::Hash;
 ///     type State = TspState;
 ///     type CostType = i32;
 ///
-///     fn get_dual_bound(&self, state: &TspState) -> Option<i32> {
+///     fn get_dual_bound(&self, state: &Self::State) -> Option<Self::CostType> {
 ///         Some(0)
 ///     }
 /// }
@@ -98,24 +102,27 @@ use std::hash::Hash;
 /// assert!(!solution.is_infeasible);
 /// assert_eq!(solution.best_bound, Some(6));
 /// ```
-pub fn create_cabs<D, S, C, K>(
+pub fn create_cabs<D, S, C, L, K>(
     dp: D,
     mut parameters: SearchParameters<C>,
     cabs_parameters: CabsParameters,
-) -> impl Search<CostType = C>
+) -> impl Search<CostType = C, Label = L>
 where
-    D: Dp<State = S, CostType = C> + Dominance<State = S, Key = K> + Bound<State = S, CostType = C>,
+    D: Dp<State = S, CostType = C, Label = L>
+        + Dominance<State = S, Key = K>
+        + Bound<State = S, CostType = C>,
     C: Ord + Copy + Signed + Display,
+    L: Default + Copy,
     K: Hash + Eq,
 {
     let root_node_constructor = |dp: &D, bound| {
         DualBoundNode::create_root(dp, dp.get_target(), dp.get_identity_weight(), bound)
     };
     let node_constructor =
-        |dp: &_, state, cost, transition, parent: &DualBoundNode<_, _, _>, primal_bound| {
+        |dp: &_, state, cost, transition, parent: &DualBoundNode<_, _, _, _>, primal_bound| {
             parent.create_child(dp, state, cost, transition, primal_bound, None)
         };
-    let solution_checker = |dp: &_, node: &DualBoundNode<_, _, _>| node.check_solution(dp);
+    let solution_checker = |dp: &_, node: &DualBoundNode<_, _, _, _>| node.check_solution(dp);
     let beam_search_closure = move |dp: &_, root_node, parameters: &_| {
         search_algorithms::beam_search(
             dp,
@@ -161,6 +168,7 @@ where
 /// impl Dp for Tsp {
 ///     type State = TspState;
 ///     type CostType = i32;
+///     type Label = usize;
 ///
 ///     fn get_target(&self) -> TspState {
 ///         let mut unvisited = FixedBitSet::with_capacity(self.c.len());
@@ -219,14 +227,15 @@ where
 /// assert!(!solution.is_infeasible);
 /// assert_eq!(solution.best_bound, Some(6));
 /// ```
-pub fn create_blind_cabs<D, S, C, K>(
+pub fn create_blind_cabs<D, S, C, L, K>(
     dp: D,
     parameters: SearchParameters<C>,
     cabs_parameters: CabsParameters,
-) -> impl Search<CostType = C>
+) -> impl Search<CostType = C, Label = L>
 where
-    D: Dp<State = S, CostType = C> + Dominance<State = S, Key = K>,
+    D: Dp<State = S, CostType = C, Label = L> + Dominance<State = S, Key = K>,
     C: Ord + Copy + Signed + Display,
+    L: Default + Copy,
     K: Hash + Eq,
 {
     let root_node_constructor = |dp: &D, _| {
@@ -236,10 +245,10 @@ where
             dp.get_identity_weight(),
         ))
     };
-    let node_constructor = |dp: &_, state, cost, transition, parent: &CostNode<_, _, _>, _| {
+    let node_constructor = |dp: &_, state, cost, transition, parent: &CostNode<_, _, _, _>, _| {
         Some(parent.create_child(dp, state, cost, transition))
     };
-    let solution_checker = |dp: &_, node: &CostNode<_, _, _>| node.check_solution(dp);
+    let solution_checker = |dp: &_, node: &CostNode<_, _, _, _>| node.check_solution(dp);
     let beam_search_closure = move |dp: &_, root_node, parameters: &_| {
         search_algorithms::beam_search(
             dp,
@@ -271,6 +280,7 @@ mod tests {
     impl Dp for MockDp {
         type State = i32;
         type CostType = i32;
+        type Label = usize;
 
         fn get_target(&self) -> Self::State {
             self.0
@@ -279,16 +289,12 @@ mod tests {
         fn get_successors(
             &self,
             state: &Self::State,
-        ) -> impl IntoIterator<Item = (Self::State, Self::CostType, usize)> {
+        ) -> impl IntoIterator<Item = (Self::State, Self::CostType, Self::Label)> {
             vec![(*state - 1, 1, 1)]
         }
 
         fn get_base_cost(&self, state: &Self::State) -> Option<Self::CostType> {
-            if *state <= 0 {
-                Some(0)
-            } else {
-                None
-            }
+            if *state <= 0 { Some(0) } else { None }
         }
     }
 
@@ -316,6 +322,7 @@ mod tests {
         type DpData = MockDp;
         type State = i32;
         type CostType = i32;
+        type Label = usize;
 
         fn get_state(&self, _: &Self::DpData) -> &Self::State {
             &self.0
@@ -341,7 +348,7 @@ mod tests {
             self.2.get()
         }
 
-        fn get_transitions(&self, _: &Self::DpData) -> Vec<usize> {
+        fn get_transitions(&self, _: &Self::DpData) -> Vec<Self::Label> {
             self.3.clone()
         }
     }

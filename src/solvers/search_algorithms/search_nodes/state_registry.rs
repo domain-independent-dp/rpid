@@ -212,6 +212,7 @@ mod tests {
     impl Dp for MockDp {
         type State = (i32, i32, i32);
         type CostType = i32;
+        type Label = usize;
 
         fn get_target(&self) -> Self::State {
             (0, 0, 0)
@@ -220,7 +221,7 @@ mod tests {
         fn get_successors(
             &self,
             _: &Self::State,
-        ) -> impl IntoIterator<Item = (Self::State, i32, usize)> {
+        ) -> impl IntoIterator<Item = (Self::State, Self::CostType, Self::Label)> {
             vec![]
         }
 

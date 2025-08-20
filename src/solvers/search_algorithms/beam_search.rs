@@ -1,12 +1,12 @@
+use super::SearchParameters;
 use super::search::Solution;
 use super::search_nodes::{SearchNode, StateRegistry};
-use super::SearchParameters;
+use crate::Dominance;
 use crate::dp::Dp;
 use crate::timer::Timer;
-use crate::Dominance;
 use smallvec::SmallVec;
 use std::cmp::Reverse;
-use std::collections::{binary_heap, BinaryHeap};
+use std::collections::{BinaryHeap, binary_heap};
 use std::fmt::Display;
 use std::hash::Hash;
 use std::mem;
@@ -83,7 +83,7 @@ where
     fn clean_garbage(&mut self) {
         let mut peek = self.queue.peek();
 
-        while peek.map_or(false, |node| node.0.is_closed()) {
+        while peek.is_some_and(|node| node.0.is_closed()) {
             self.queue.pop();
             peek = self.queue.peek();
         }
@@ -124,7 +124,7 @@ where
             removed: None,
         };
 
-        if self.size < self.beam_width || self.queue.peek().map_or(true, |peek| node > *peek.0) {
+        if self.size < self.beam_width || self.queue.peek().is_none_or(|peek| node > *peek.0) {
             let insertion_result = registry.insert_if_not_dominated(dp, node);
 
             for d in insertion_result.dominated.iter() {
@@ -194,20 +194,21 @@ where
 ///
 /// `solution_checker` is a function that checks whether the given node is a solution
 /// and returns the cost and transitions if it is.
-pub fn beam_search<D, S, C, K, N, F, G>(
+pub fn beam_search<D, S, C, L, K, N, F, G>(
     dp: &D,
     root_node: N,
     mut node_constructor: F,
     mut solution_checker: G,
     parameters: &BeamSearchParameters<C>,
-) -> Solution<C>
+) -> Solution<C, L>
 where
-    D: Dp<State = S, CostType = C> + Dominance<State = S, Key = K>,
+    D: Dp<State = S, CostType = C, Label = L> + Dominance<State = S, Key = K>,
     C: Ord + Copy + Display,
+    L: Copy,
     K: Hash + Eq,
-    N: Ord + SearchNode<DpData = D, State = S, CostType = C>,
-    F: FnMut(&D, S, C, usize, &N, Option<C>) -> Option<N>,
-    G: FnMut(&D, &N) -> Option<(C, Vec<usize>)>,
+    N: Ord + SearchNode<DpData = D, State = S, CostType = C, Label = L>,
+    F: FnMut(&D, S, C, L, &N, Option<C>) -> Option<N>,
+    G: FnMut(&D, &N) -> Option<(C, Vec<L>)>,
 {
     let timer = parameters
         .search_parameters
@@ -259,18 +260,18 @@ where
             }
 
             if let Some((solution_cost, transitions)) = solution_checker(dp, &node) {
-                if primal_bound.map_or(true, |bound| dp.is_better_cost(solution_cost, bound)) {
+                if primal_bound.is_none_or(|bound| dp.is_better_cost(solution_cost, bound)) {
                     primal_bound = Some(solution_cost);
                     solution.cost = Some(solution_cost);
                     solution.transitions = transitions;
 
                     if !quiet {
                         println!(
-                            "New primal bound: {}, expanded: {}, generated: {}, elapsed time: {}s.",
-                            solution_cost,
-                            solution.expanded,
-                            solution.generated,
-                            timer.get_elapsed_time()
+                            "New primal bound: {solution_cost}, expanded: {expanded}, generated: {generated}, elapsed time: {time}s.",
+                            solution_cost = solution_cost,
+                            expanded = solution.expanded,
+                            generated = solution.generated,
+                            time = timer.get_elapsed_time()
                         );
                     }
                 }
@@ -301,24 +302,23 @@ where
 
                     if let Some(bound) = successor_bound {
                         if layer_dual_bound
-                            .map_or(true, |layer_bound| dp.is_better_cost(bound, layer_bound))
+                            .is_none_or(|layer_bound| dp.is_better_cost(bound, layer_bound))
                         {
                             layer_dual_bound = Some(bound);
                         }
 
                         if result.is_pruned
-                            && removed_dual_bound.map_or(true, |removed_bound| {
-                                dp.is_better_cost(bound, removed_bound)
-                            })
+                            && removed_dual_bound
+                                .is_none_or(|removed_bound| dp.is_better_cost(bound, removed_bound))
                         {
                             removed_dual_bound = Some(bound);
                         }
                     }
 
                     if let Some(bound) = result.removed.and_then(|removed| removed.get_bound(dp)) {
-                        if removed_dual_bound.map_or(true, |removed_bound| {
-                            dp.is_better_cost(bound, removed_bound)
-                        }) {
+                        if removed_dual_bound
+                            .is_none_or(|removed_bound| dp.is_better_cost(bound, removed_bound))
+                        {
                             removed_dual_bound = Some(bound);
                         }
                     }
@@ -331,7 +331,7 @@ where
 
             solution.expanded += 1;
 
-            if expansion_limit.map_or(false, |limit| solution.expanded >= limit) {
+            if expansion_limit.is_some_and(|limit| solution.expanded >= limit) {
                 if !quiet {
                     println!("Expansion limit reached.");
                 }
@@ -345,16 +345,15 @@ where
 
         if !quiet {
             println!(
-                "Layer: {}, expanded: {}, generated: {}, elapsed time: {}s",
-                layer_index,
-                solution.expanded,
-                solution.generated,
-                timer.get_elapsed_time()
+                "Layer: {layer_index}, expanded: {expanded}, generated: {generated}, elapsed time: {time}s",
+                expanded = solution.expanded,
+                generated = solution.generated,
+                time = timer.get_elapsed_time()
             );
         }
 
         if let Some(bound) = layer_dual_bound {
-            if primal_bound.map_or(false, |primal_bound| dp.is_better_cost(primal_bound, bound)) {
+            if primal_bound.is_some_and(|primal_bound| dp.is_better_cost(primal_bound, bound)) {
                 solution.best_bound = primal_bound;
                 solution.is_optimal = solution.cost.is_some();
                 solution.is_infeasible = solution.cost.is_none();
@@ -363,12 +362,12 @@ where
                 return solution;
             } else if solution
                 .best_bound
-                .map_or(true, |best_bound| dp.is_better_cost(best_bound, bound))
+                .is_none_or(|best_bound| dp.is_better_cost(best_bound, bound))
             {
                 solution.best_bound = Some(bound);
 
                 if !quiet {
-                    println!("New dual bound: {}", bound);
+                    println!("New dual bound: {bound}");
                 }
             }
         }
@@ -415,6 +414,7 @@ mod tests {
     impl Dp for MockDp {
         type State = i32;
         type CostType = i32;
+        type Label = usize;
 
         fn get_target(&self) -> Self::State {
             self.0
@@ -423,16 +423,12 @@ mod tests {
         fn get_successors(
             &self,
             state: &Self::State,
-        ) -> impl IntoIterator<Item = (Self::State, Self::CostType, usize)> {
+        ) -> impl IntoIterator<Item = (Self::State, Self::CostType, Self::Label)> {
             vec![(*state - 1, 1, 1)]
         }
 
         fn get_base_cost(&self, state: &Self::State) -> Option<Self::CostType> {
-            if *state <= 0 {
-                Some(0)
-            } else {
-                None
-            }
+            if *state <= 0 { Some(0) } else { None }
         }
     }
 
@@ -451,6 +447,7 @@ mod tests {
         type DpData = MockDp;
         type State = i32;
         type CostType = i32;
+        type Label = usize;
 
         fn get_state(&self, _: &Self::DpData) -> &Self::State {
             &self.0
@@ -476,7 +473,7 @@ mod tests {
             self.2.get()
         }
 
-        fn get_transitions(&self, _: &Self::DpData) -> Vec<usize> {
+        fn get_transitions(&self, _: &Self::DpData) -> Vec<Self::Label> {
             self.3.clone()
         }
     }

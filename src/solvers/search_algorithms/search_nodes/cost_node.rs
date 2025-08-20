@@ -1,5 +1,5 @@
-use super::id_tree::IdTree;
 use super::SearchNode;
+use super::id_tree::IdTree;
 use crate::dp::{Dp, OptimizationMode};
 use std::cell::Cell;
 use std::cmp::Ordering;
@@ -8,18 +8,19 @@ use std::ops::Neg;
 use std::rc::Rc;
 
 /// Node ordered by the cost.
-pub struct CostNode<D, S, C> {
+pub struct CostNode<D, S, C, L> {
     state: S,
     cost: C,
     closed: Cell<bool>,
-    transition_tree: Rc<IdTree>,
+    transition_tree: Rc<IdTree<L>>,
     _phantom: PhantomData<D>,
 }
 
-impl<D, S, C> CostNode<D, S, C>
+impl<D, S, C, L> CostNode<D, S, C, L>
 where
     D: Dp<State = S, CostType = C>,
     C: Neg<Output = C>,
+    L: Default + Copy,
 {
     /// Creates a new root node given the state and the cost.
     pub fn create_root(dp: &D, state: S, cost: C) -> Self {
@@ -36,7 +37,7 @@ where
     }
 
     /// Creates a new child node given the state, the cost, and the transition.
-    pub fn create_child(&self, dp: &D, state: S, cost: C, transition: usize) -> Self {
+    pub fn create_child(&self, dp: &D, state: S, cost: C, transition: L) -> Self {
         Self {
             state,
             cost: match dp.get_optimization_mode() {
@@ -53,10 +54,11 @@ where
     }
 }
 
-impl<D, S, C> Clone for CostNode<D, S, C>
+impl<D, S, C, L> Clone for CostNode<D, S, C, L>
 where
     S: Clone,
     C: Clone,
+    L: Clone,
 {
     fn clone(&self) -> Self {
         Self {
@@ -69,14 +71,16 @@ where
     }
 }
 
-impl<D, S, C> SearchNode for CostNode<D, S, C>
+impl<D, S, C, L> SearchNode for CostNode<D, S, C, L>
 where
-    D: Dp<State = S, CostType = C>,
+    D: Dp<State = S, CostType = C, Label = L>,
     C: Copy + Neg<Output = C>,
+    L: Copy,
 {
     type DpData = D;
     type State = S;
     type CostType = C;
+    type Label = L;
 
     fn get_state(&self, _: &Self::DpData) -> &Self::State {
         &self.state
@@ -105,12 +109,12 @@ where
         self.closed.set(true);
     }
 
-    fn get_transitions(&self, _: &D) -> Vec<usize> {
+    fn get_transitions(&self, _: &D) -> Vec<L> {
         self.transition_tree.get_path()
     }
 }
 
-impl<D, S, C> PartialEq for CostNode<D, S, C>
+impl<D, S, C, L> PartialEq for CostNode<D, S, C, L>
 where
     C: PartialEq,
 {
@@ -119,9 +123,9 @@ where
     }
 }
 
-impl<D, S, C> Eq for CostNode<D, S, C> where C: Eq {}
+impl<D, S, C, L> Eq for CostNode<D, S, C, L> where C: Eq {}
 
-impl<D, S, C> Ord for CostNode<D, S, C>
+impl<D, S, C, L> Ord for CostNode<D, S, C, L>
 where
     C: Eq + Ord,
 {
@@ -130,7 +134,7 @@ where
     }
 }
 
-impl<D, S, C> PartialOrd for CostNode<D, S, C>
+impl<D, S, C, L> PartialOrd for CostNode<D, S, C, L>
 where
     C: Eq + Ord,
 {
@@ -149,13 +153,17 @@ mod tests {
     impl Dp for MockDp {
         type State = i32;
         type CostType = i32;
+        type Label = usize;
 
         fn get_target(&self) -> i32 {
             0
         }
 
         #[allow(refining_impl_trait_internal)]
-        fn get_successors(&self, _: &Self::State) -> Vec<(i32, i32, usize)> {
+        fn get_successors(
+            &self,
+            _: &Self::State,
+        ) -> Vec<(Self::State, Self::CostType, Self::Label)> {
             vec![]
         }
 
@@ -171,7 +179,7 @@ mod tests {
     #[test]
     fn test_create_root_minimization() {
         let dp = MockDp(OptimizationMode::Minimization);
-        let node = CostNode::<_, _, i32>::create_root(&dp, 0, 1);
+        let node = CostNode::<_, _, i32, usize>::create_root(&dp, 0, 1);
 
         assert_eq!(node.get_state(&dp), &0);
         assert_eq!(node.get_cost(&dp), 1);
@@ -183,7 +191,7 @@ mod tests {
     #[test]
     fn test_create_root_maximization() {
         let dp = MockDp(OptimizationMode::Maximization);
-        let node = CostNode::<_, _, i32>::create_root(&dp, 0, 1);
+        let node = CostNode::<_, _, i32, usize>::create_root(&dp, 0, 1);
 
         assert_eq!(node.get_state(&dp), &0);
         assert_eq!(node.get_cost(&dp), 1);
@@ -195,7 +203,7 @@ mod tests {
     #[test]
     fn test_create_child_minimization() {
         let dp = MockDp(OptimizationMode::Minimization);
-        let parent = CostNode::<_, _, i32>::create_root(&dp, 0, 1);
+        let parent = CostNode::<_, _, i32, usize>::create_root(&dp, 0, 1);
         let child = parent.create_child(&dp, 1, 2, 0);
 
         assert_eq!(child.get_state(&dp), &1);
@@ -208,7 +216,7 @@ mod tests {
     #[test]
     fn test_create_child_maximization() {
         let dp = MockDp(OptimizationMode::Minimization);
-        let parent = CostNode::<_, _, i32>::create_root(&dp, 0, 1);
+        let parent = CostNode::<_, _, i32, usize>::create_root(&dp, 0, 1);
         let child = parent.create_child(&dp, 1, 2, 0);
 
         assert_eq!(child.get_state(&dp), &1);
@@ -221,7 +229,7 @@ mod tests {
     #[test]
     fn test_clone() {
         let dp = MockDp(OptimizationMode::Minimization);
-        let node = CostNode::<_, _, i32>::create_root(&dp, 0, 1);
+        let node = CostNode::<_, _, i32, usize>::create_root(&dp, 0, 1);
         let cloned = node.clone();
         assert_eq!(node.get_state(&dp), cloned.get_state(&dp));
         assert_eq!(node.get_cost(&dp), cloned.get_cost(&dp));
@@ -233,7 +241,7 @@ mod tests {
     #[test]
     fn test_state_mut() {
         let dp = MockDp(OptimizationMode::Minimization);
-        let mut node = CostNode::<_, _, i32>::create_root(&dp, 0, 1);
+        let mut node = CostNode::<_, _, i32, usize>::create_root(&dp, 0, 1);
 
         *node.get_state_mut(&dp) = 1;
         assert_eq!(node.get_state(&dp), &1);
@@ -242,7 +250,7 @@ mod tests {
     #[test]
     fn test_close() {
         let dp = MockDp(OptimizationMode::Minimization);
-        let node = CostNode::<_, _, i32>::create_root(&dp, 0, 1);
+        let node = CostNode::<_, _, i32, usize>::create_root(&dp, 0, 1);
 
         assert!(!node.is_closed());
         node.close();
@@ -252,9 +260,9 @@ mod tests {
     #[test]
     fn test_ord_minimization() {
         let dp = MockDp(OptimizationMode::Minimization);
-        let node1 = CostNode::<_, _, i32>::create_root(&dp, 0, 1);
-        let node2 = CostNode::<_, _, i32>::create_root(&dp, 1, 1);
-        let node3 = CostNode::<_, _, i32>::create_root(&dp, 0, 2);
+        let node1 = CostNode::<_, _, i32, usize>::create_root(&dp, 0, 1);
+        let node2 = CostNode::<_, _, i32, usize>::create_root(&dp, 1, 1);
+        let node3 = CostNode::<_, _, i32, usize>::create_root(&dp, 0, 2);
 
         assert!(node1 == node1);
         assert!(node1 == node2);
@@ -265,9 +273,9 @@ mod tests {
     #[test]
     fn test_ord_maximization() {
         let dp = MockDp(OptimizationMode::Maximization);
-        let node1 = CostNode::<_, _, i32>::create_root(&dp, 0, 1);
-        let node2 = CostNode::<_, _, i32>::create_root(&dp, 1, 1);
-        let node3 = CostNode::<_, _, i32>::create_root(&dp, 0, 2);
+        let node1 = CostNode::<_, _, i32, usize>::create_root(&dp, 0, 1);
+        let node2 = CostNode::<_, _, i32, usize>::create_root(&dp, 1, 1);
+        let node3 = CostNode::<_, _, i32, usize>::create_root(&dp, 0, 2);
 
         assert!(node1 == node1);
         assert!(node1 == node2);

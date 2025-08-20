@@ -8,20 +8,21 @@ use std::hash::Hash;
 use std::rc::Rc;
 
 /// Best-first search.
-pub struct BestFirstSearch<D, C, K, N, F, G> {
-    base: SearchBase<D, C, K, N, F, G>,
+pub struct BestFirstSearch<D, C, L, K, N, F, G> {
+    base: SearchBase<D, C, L, K, N, F, G>,
     open: BinaryHeap<Rc<N>>,
     timer: Timer,
 }
 
-impl<D, C, K, N, F, G, S> BestFirstSearch<D, C, K, N, F, G>
+impl<D, C, L, K, N, F, G, S> BestFirstSearch<D, C, L, K, N, F, G>
 where
-    D: Dp<State = S, CostType = C> + Dominance<State = S, Key = K>,
+    D: Dp<State = S, CostType = C, Label = L> + Dominance<State = S, Key = K>,
     C: Ord + Copy + Display,
+    L: Copy,
     K: Hash + Eq,
-    N: Ord + SearchNode<DpData = D, State = S, CostType = C>,
-    F: FnMut(&D, S, C, usize, &N, Option<C>, Option<&N>) -> Option<N>,
-    G: FnMut(&D, &N) -> Option<(C, Vec<usize>)>,
+    N: Ord + SearchNode<DpData = D, State = S, CostType = C, Label = L>,
+    F: FnMut(&D, S, C, L, &N, Option<C>, Option<&N>) -> Option<N>,
+    G: FnMut(&D, &N) -> Option<(C, Vec<L>)>,
 {
     /// Creates a new instance of the best-first search algorithm.
     ///
@@ -63,18 +64,20 @@ where
     }
 }
 
-impl<D, C, K, N, F, G, S> Search for BestFirstSearch<D, C, K, N, F, G>
+impl<D, C, L, K, N, F, G, S> Search for BestFirstSearch<D, C, L, K, N, F, G>
 where
-    D: Dp<State = S, CostType = C> + Dominance<State = S, Key = K>,
+    D: Dp<State = S, CostType = C, Label = L> + Dominance<State = S, Key = K>,
     C: Ord + Copy + Display,
+    L: Copy,
     K: Hash + Eq,
-    N: Ord + SearchNode<DpData = D, State = S, CostType = C>,
-    F: FnMut(&D, S, C, usize, &N, Option<C>, Option<&N>) -> Option<N>,
-    G: FnMut(&D, &N) -> Option<(C, Vec<usize>)>,
+    N: Ord + SearchNode<DpData = D, State = S, CostType = C, Label = L>,
+    F: FnMut(&D, S, C, L, &N, Option<C>, Option<&N>) -> Option<N>,
+    G: FnMut(&D, &N) -> Option<(C, Vec<L>)>,
 {
     type CostType = C;
+    type Label = L;
 
-    fn search_next(&mut self) -> (Solution<C>, bool) {
+    fn search_next(&mut self) -> (Solution<C, L>, bool) {
         self.timer.start();
 
         if self.base.is_terminated() {
@@ -142,6 +145,7 @@ mod tests {
     impl Dp for MockDp {
         type State = i32;
         type CostType = i32;
+        type Label = usize;
 
         fn get_target(&self) -> Self::State {
             self.0
@@ -150,16 +154,12 @@ mod tests {
         fn get_successors(
             &self,
             state: &Self::State,
-        ) -> impl IntoIterator<Item = (Self::State, Self::CostType, usize)> {
+        ) -> impl IntoIterator<Item = (Self::State, Self::CostType, Self::Label)> {
             vec![(*state - 1, 1, 1)]
         }
 
         fn get_base_cost(&self, state: &Self::State) -> Option<Self::CostType> {
-            if *state <= 0 {
-                Some(0)
-            } else {
-                None
-            }
+            if *state <= 0 { Some(0) } else { None }
         }
     }
 
@@ -178,6 +178,7 @@ mod tests {
         type DpData = MockDp;
         type State = i32;
         type CostType = i32;
+        type Label = usize;
 
         fn get_state(&self, _: &Self::DpData) -> &Self::State {
             &self.0
@@ -203,7 +204,7 @@ mod tests {
             self.2.get()
         }
 
-        fn get_transitions(&self, _: &Self::DpData) -> Vec<usize> {
+        fn get_transitions(&self, _: &Self::DpData) -> Vec<Self::Label> {
             self.3.clone()
         }
     }

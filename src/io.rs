@@ -64,13 +64,14 @@ where
 ///
 /// The first field is the time, second is the cost, third is the bound, fourth is the transitions,
 /// fifth is the expanded, and sixth is the generated.
-pub fn run_solver_and_dump_solution_history<S, C>(
+pub fn run_solver_and_dump_solution_history<S, C, L>(
     solver: &mut S,
     filename: &str,
-) -> Result<Solution<C>, Box<dyn Error>>
+) -> Result<Solution<C, L>, Box<dyn Error>>
 where
-    S: Search<CostType = C>,
+    S: Search<CostType = C, Label = L>,
     C: Display + Copy,
+    L: Display,
 {
     let mut file = OpenOptions::new()
         .create(true)
@@ -85,19 +86,23 @@ where
             let transitions = solution
                 .transitions
                 .iter()
-                .map(|t| format!("{}", t))
+                .map(|t| format!("{t}"))
                 .collect::<Vec<_>>()
                 .join(" ");
 
             let line = if let Some(bound) = solution.best_bound {
                 format!(
-                    "{}, {}, {}, {}, {}, {}\n",
-                    solution.time, cost, bound, transitions, solution.expanded, solution.generated
+                    "{time}, {cost}, {bound}, {transitions}, {expanded}, {generated}\n",
+                    time = solution.time,
+                    expanded = solution.expanded,
+                    generated = solution.generated
                 )
             } else {
                 format!(
-                    "{}, {}, , {}, {}, {}\n",
-                    solution.time, cost, transitions, solution.expanded, solution.generated
+                    "{time}, {cost}, , {transitions}, {expanded}, {generated}\n",
+                    time = solution.time,
+                    expanded = solution.expanded,
+                    generated = solution.generated
                 )
             };
             file.write_all(line.as_bytes())?;
@@ -111,15 +116,15 @@ where
 }
 
 /// Print the cost, bound, and statistics of a solution.
-pub fn print_solution_statistics<C>(solution: &Solution<C>)
+pub fn print_solution_statistics<C, L>(solution: &Solution<C, L>)
 where
     C: Copy + Display,
 {
     if let Some(cost) = solution.cost {
-        println!("cost: {}", cost);
+        println!("cost: {cost}");
 
         if solution.is_optimal {
-            println!("optimal cost: {}", cost);
+            println!("optimal cost: {cost}");
         }
     } else {
         println!("No solution is found.");
@@ -130,12 +135,12 @@ where
     }
 
     if let Some(bound) = solution.best_bound {
-        println!("best bound: {}", bound);
+        println!("best bound: {bound}");
     }
 
-    println!("Search time: {}s", solution.time);
-    println!("Expanded: {}", solution.expanded);
-    println!("Generated: {}", solution.generated);
+    println!("Search time: {time}s", time = solution.time);
+    println!("Expanded: {expanded}", expanded = solution.expanded);
+    println!("Generated: {generated}", generated = solution.generated);
 }
 
 #[cfg(test)]

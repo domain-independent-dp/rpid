@@ -30,8 +30,9 @@ use std::hash::Hash;
 /// impl Dp for Tsp {
 ///     type State = TspState;
 ///     type CostType = i32;
+///     type Label = usize;
 ///
-///     fn get_target(&self) -> TspState {
+///     fn get_target(&self) -> Self::State {
 ///         let mut unvisited = FixedBitSet::with_capacity(self.c.len());
 ///         unvisited.insert_range(1..);
 ///
@@ -41,7 +42,10 @@ use std::hash::Hash;
 ///        }
 ///     }
 ///
-///     fn get_successors(&self, state: &TspState) -> impl IntoIterator<Item = (TspState, i32, usize)> {
+///     fn get_successors(
+///         &self,
+///         state: &Self::State,
+///     ) -> impl IntoIterator<Item = (Self::State, Self::CostType, Self::Label)> {
 ///         state.unvisited.ones().map(|next| {
 ///             let mut unvisited = state.unvisited.clone();
 ///             unvisited.remove(next);
@@ -56,7 +60,7 @@ use std::hash::Hash;
 ///         })
 ///     }
 ///
-///     fn get_base_cost(&self, state: &TspState) -> Option<i32> {
+///     fn get_base_cost(&self, state: &Self::State) -> Option<Self::CostType> {
 ///         if state.unvisited.is_clear() {
 ///             Some(self.c[state.current][0])
 ///         } else {
@@ -69,7 +73,7 @@ use std::hash::Hash;
 ///     type State = TspState;
 ///     type Key = (FixedBitSet, usize);
 ///
-///     fn get_key(&self, state: &TspState) -> Self::Key {
+///     fn get_key(&self, state: &Self::State) -> Self::Key {
 ///         (state.unvisited.clone(), state.current)
 ///     }
 /// }
@@ -87,13 +91,14 @@ use std::hash::Hash;
 /// assert!(!solution.is_infeasible);
 /// assert_eq!(solution.best_bound, Some(6));
 /// ```
-pub fn create_dijkstra<D, S, C, K>(
+pub fn create_dijkstra<D, S, C, L, K>(
     dp: D,
     parameters: SearchParameters<C>,
-) -> impl Search<CostType = C>
+) -> impl Search<CostType = C, Label = L>
 where
-    D: Dp<State = S, CostType = C> + Dominance<State = S, Key = K>,
+    D: Dp<State = S, CostType = C, Label = L> + Dominance<State = S, Key = K>,
     C: Ord + Copy + Signed + Display,
+    L: Default + Copy,
     K: Hash + Eq,
 {
     let root_node_constructor = |dp: &D, _| {
@@ -104,10 +109,10 @@ where
         ))
     };
     let node_constructor =
-        |dp: &_, state, cost, transition, parent: &CostNode<_, _, _>, _, _: Option<&_>| {
+        |dp: &_, state, cost, transition, parent: &CostNode<_, _, _, _>, _, _: Option<&_>| {
             Some(parent.create_child(dp, state, cost, transition))
         };
-    let solution_checker = |dp: &_, node: &CostNode<_, _, _>| node.check_solution(dp);
+    let solution_checker = |dp: &_, node: &CostNode<_, _, _, _>| node.check_solution(dp);
 
     BestFirstSearch::new(
         dp,
@@ -121,6 +126,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Solution;
     use std::cell::Cell;
     use std::cmp::Ordering;
 
@@ -130,6 +136,7 @@ mod tests {
     impl Dp for MockDp {
         type State = i32;
         type CostType = i32;
+        type Label = usize;
 
         fn get_target(&self) -> Self::State {
             self.0
@@ -138,16 +145,12 @@ mod tests {
         fn get_successors(
             &self,
             state: &Self::State,
-        ) -> impl IntoIterator<Item = (Self::State, Self::CostType, usize)> {
+        ) -> impl IntoIterator<Item = (Self::State, Self::CostType, Self::Label)> {
             vec![(*state - 1, 1, 1)]
         }
 
         fn get_base_cost(&self, state: &Self::State) -> Option<Self::CostType> {
-            if *state <= 0 {
-                Some(0)
-            } else {
-                None
-            }
+            if *state <= 0 { Some(0) } else { None }
         }
     }
 
@@ -166,6 +169,7 @@ mod tests {
         type DpData = MockDp;
         type State = i32;
         type CostType = i32;
+        type Label = usize;
 
         fn get_state(&self, _: &Self::DpData) -> &Self::State {
             &self.0
@@ -191,7 +195,7 @@ mod tests {
             self.2.get()
         }
 
-        fn get_transitions(&self, _: &Self::DpData) -> Vec<usize> {
+        fn get_transitions(&self, _: &Self::DpData) -> Vec<Self::Label> {
             self.3.clone()
         }
     }
@@ -225,7 +229,7 @@ mod tests {
         };
         let mut search = create_dijkstra(dp, parameters);
 
-        let solution = search.search();
+        let solution: Solution<_, usize> = search.search();
         assert_eq!(solution.cost, Some(2));
         assert_eq!(solution.transitions, vec![1, 1]);
         assert_eq!(solution.best_bound, Some(2));
@@ -245,7 +249,7 @@ mod tests {
         };
         let mut search = create_dijkstra(dp, parameters);
 
-        let solution = search.search();
+        let solution: Solution<_, usize> = search.search();
         assert_eq!(solution.cost, None);
         assert_eq!(solution.transitions, vec![]);
         assert_eq!(solution.best_bound, None);

@@ -25,8 +25,9 @@ struct TspState {
 impl Dp for Tsp {
     type State = TspState;
     type CostType = i32;
+    type Label = usize;
 
-    fn get_target(&self) -> TspState {
+    fn get_target(&self) -> Self::State {
         let mut unvisited = FixedBitSet::with_capacity(self.c.len());
         unvisited.insert_range(1..);
 
@@ -36,7 +37,10 @@ impl Dp for Tsp {
         }
     }
 
-    fn get_successors(&self, state: &TspState) -> impl IntoIterator<Item = (TspState, i32, usize)> {
+    fn get_successors(
+        &self,
+        state: &Self::State,
+    ) -> impl IntoIterator<Item = (Self::State, Self::CostType, Self::Label)> {
         state.unvisited.ones().map(|next| {
             let mut unvisited = state.unvisited.clone();
             unvisited.remove(next);
@@ -51,7 +55,7 @@ impl Dp for Tsp {
         })
     }
 
-    fn get_base_cost(&self, state: &TspState) -> Option<i32> {
+    fn get_base_cost(&self, state: &Self::State) -> Option<Self::CostType> {
         if state.unvisited.is_clear() {
             Some(self.c[state.current][0])
         } else {
@@ -64,7 +68,7 @@ impl Dominance for Tsp {
     type State = TspState;
     type Key = (FixedBitSet, usize);
 
-    fn get_key(&self, state: &TspState) -> Self::Key {
+    fn get_key(&self, state: &Self::State) -> Self::Key {
         (state.unvisited.clone(), state.current)
     }
 }
@@ -73,7 +77,7 @@ impl Bound for Tsp {
     type State = TspState;
     type CostType = i32;
 
-    fn get_dual_bound(&self, _: &TspState) -> Option<i32> {
+    fn get_dual_bound(&self, _: &Self::State) -> Option<Self::CostType> {
         Some(0)
     }
 }

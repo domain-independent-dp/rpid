@@ -1,7 +1,7 @@
-use super::id_tree::IdTree;
 use super::SearchNode;
-use crate::dp::{Dp, OptimizationMode};
+use super::id_tree::IdTree;
 use crate::Bound;
+use crate::dp::{Dp, OptimizationMode};
 use std::cell::Cell;
 use std::cmp::Ordering;
 use std::marker::PhantomData;
@@ -12,20 +12,21 @@ use std::rc::Rc;
 ///
 /// Ties are broken by the h-value.
 #[derive(Debug)]
-pub struct DualBoundNode<D, S, C> {
+pub struct DualBoundNode<D, S, C, L> {
     state: S,
     g: C,
     h: C,
     f: C,
     closed: Cell<bool>,
-    transition_tree: Rc<IdTree>,
+    transition_tree: Rc<IdTree<L>>,
     _phantom: PhantomData<D>,
 }
 
-impl<D, S, C> DualBoundNode<D, S, C>
+impl<D, S, C, L> DualBoundNode<D, S, C, L>
 where
     D: Dp<State = S, CostType = C> + Bound<State = S, CostType = C>,
     C: Copy + Neg<Output = C>,
+    L: Default + Copy,
 {
     fn compute_h_and_f(dp: &D, g: C, h: C, primal_bound: Option<C>) -> Option<(C, C)> {
         let f = dp.combine_cost_weights(g, h);
@@ -69,7 +70,7 @@ where
         dp: &D,
         state: S,
         cost: C,
-        transition: usize,
+        transition: L,
         primal_bound: Option<C>,
         other: Option<&Self>,
     ) -> Option<Self> {
@@ -95,10 +96,11 @@ where
     }
 }
 
-impl<D, S, C> Clone for DualBoundNode<D, S, C>
+impl<D, S, C, L> Clone for DualBoundNode<D, S, C, L>
 where
     S: Clone,
     C: Clone,
+    L: Clone,
 {
     fn clone(&self) -> Self {
         Self {
@@ -113,7 +115,7 @@ where
     }
 }
 
-impl<D, S, C> PartialEq for DualBoundNode<D, S, C>
+impl<D, S, C, L> PartialEq for DualBoundNode<D, S, C, L>
 where
     C: PartialEq,
 {
@@ -122,9 +124,9 @@ where
     }
 }
 
-impl<D, S, C> Eq for DualBoundNode<D, S, C> where C: Eq {}
+impl<D, S, C, L> Eq for DualBoundNode<D, S, C, L> where C: Eq {}
 
-impl<D, S, C> Ord for DualBoundNode<D, S, C>
+impl<D, S, C, L> Ord for DualBoundNode<D, S, C, L>
 where
     C: Eq + Ord,
 {
@@ -136,7 +138,7 @@ where
     }
 }
 
-impl<D, S, C> PartialOrd for DualBoundNode<D, S, C>
+impl<D, S, C, L> PartialOrd for DualBoundNode<D, S, C, L>
 where
     C: Eq + Ord,
 {
@@ -145,14 +147,16 @@ where
     }
 }
 
-impl<D, S, C> SearchNode for DualBoundNode<D, S, C>
+impl<D, S, C, L> SearchNode for DualBoundNode<D, S, C, L>
 where
     D: Dp<State = S, CostType = C>,
     C: Copy + Neg<Output = C>,
+    L: Copy,
 {
     type DpData = D;
     type State = S;
     type CostType = C;
+    type Label = L;
 
     fn get_state(&self, _: &Self::DpData) -> &Self::State {
         &self.state
@@ -181,7 +185,7 @@ where
         self.closed.set(true);
     }
 
-    fn get_transitions(&self, _: &D) -> Vec<usize> {
+    fn get_transitions(&self, _: &D) -> Vec<L> {
         self.transition_tree.get_path()
     }
 
@@ -200,12 +204,16 @@ mod tests {
     impl Dp for MockDp {
         type State = i32;
         type CostType = i32;
+        type Label = usize;
 
         fn get_target(&self) -> i32 {
             0
         }
 
-        fn get_successors(&self, _: &Self::State) -> impl IntoIterator<Item = (i32, i32, usize)> {
+        fn get_successors(
+            &self,
+            _: &Self::State,
+        ) -> impl IntoIterator<Item = (Self::State, Self::CostType, Self::Label)> {
             vec![]
         }
 
@@ -236,7 +244,7 @@ mod tests {
     #[test]
     fn test_create_root_minimization() {
         let dp = MockDp(OptimizationMode::Minimization);
-        let node = DualBoundNode::<_, _, i32>::create_root(&dp, 0, 1, None);
+        let node = DualBoundNode::<_, _, i32, usize>::create_root(&dp, 0, 1, None);
 
         assert!(node.is_some());
         let node = node.unwrap();
@@ -250,7 +258,7 @@ mod tests {
     #[test]
     fn test_create_root_none_minimization() {
         let dp = MockDp(OptimizationMode::Minimization);
-        let node = DualBoundNode::<_, _, i32>::create_root(&dp, 6, 1, None);
+        let node = DualBoundNode::<_, _, i32, usize>::create_root(&dp, 6, 1, None);
 
         assert!(node.is_none());
     }
@@ -258,7 +266,7 @@ mod tests {
     #[test]
     fn test_create_root_with_primal_bound_minimization() {
         let dp = MockDp(OptimizationMode::Minimization);
-        let node = DualBoundNode::<_, _, i32>::create_root(&dp, 0, 1, Some(5));
+        let node = DualBoundNode::<_, _, i32, usize>::create_root(&dp, 0, 1, Some(5));
 
         assert!(node.is_some());
         let node = node.unwrap();
@@ -272,7 +280,7 @@ mod tests {
     #[test]
     fn test_create_root_with_primal_bound_none_minimization() {
         let dp = MockDp(OptimizationMode::Minimization);
-        let node = DualBoundNode::<_, _, i32>::create_root(&dp, 0, 1, Some(4));
+        let node = DualBoundNode::<_, _, i32, usize>::create_root(&dp, 0, 1, Some(4));
 
         assert!(node.is_none());
     }
@@ -280,7 +288,7 @@ mod tests {
     #[test]
     fn test_create_root_maximization() {
         let dp = MockDp(OptimizationMode::Maximization);
-        let node = DualBoundNode::<_, _, i32>::create_root(&dp, 0, 1, None);
+        let node = DualBoundNode::<_, _, i32, usize>::create_root(&dp, 0, 1, None);
 
         assert!(node.is_some());
         let node = node.unwrap();
@@ -294,7 +302,7 @@ mod tests {
     #[test]
     fn test_create_root_none_maximization() {
         let dp = MockDp(OptimizationMode::Maximization);
-        let node = DualBoundNode::<_, _, i32>::create_root(&dp, 6, 1, None);
+        let node = DualBoundNode::<_, _, i32, usize>::create_root(&dp, 6, 1, None);
 
         assert!(node.is_none());
     }
@@ -302,7 +310,7 @@ mod tests {
     #[test]
     fn test_create_root_with_primal_bound_maximization() {
         let dp = MockDp(OptimizationMode::Maximization);
-        let node = DualBoundNode::<_, _, i32>::create_root(&dp, 0, 1, Some(3));
+        let node = DualBoundNode::<_, _, i32, usize>::create_root(&dp, 0, 1, Some(3));
 
         assert!(node.is_some());
         let node = node.unwrap();
@@ -316,7 +324,7 @@ mod tests {
     #[test]
     fn test_create_root_with_primal_bound_none_maximization() {
         let dp = MockDp(OptimizationMode::Maximization);
-        let node = DualBoundNode::<_, _, i32>::create_root(&dp, 0, 1, Some(4));
+        let node = DualBoundNode::<_, _, i32, usize>::create_root(&dp, 0, 1, Some(4));
 
         assert!(node.is_none());
     }
@@ -324,7 +332,7 @@ mod tests {
     #[test]
     fn test_create_child_minimization() {
         let dp = MockDp(OptimizationMode::Minimization);
-        let node = DualBoundNode::<_, _, i32>::create_root(&dp, 0, 1, None);
+        let node = DualBoundNode::<_, _, i32, usize>::create_root(&dp, 0, 1, None);
         assert!(node.is_some());
         let node = node.unwrap();
         let child = node.create_child(&dp, 1, 2, 0, None, None);
@@ -341,7 +349,7 @@ mod tests {
     #[test]
     fn test_create_child_none_minimization() {
         let dp = MockDp(OptimizationMode::Minimization);
-        let node = DualBoundNode::<_, _, i32>::create_root(&dp, 0, 1, None);
+        let node = DualBoundNode::<_, _, i32, usize>::create_root(&dp, 0, 1, None);
         assert!(node.is_some());
         let node = node.unwrap();
         let child = node.create_child(&dp, 6, 2, 0, None, None);
@@ -352,7 +360,7 @@ mod tests {
     #[test]
     fn test_create_child_with_primal_bound_minimization() {
         let dp = MockDp(OptimizationMode::Minimization);
-        let node = DualBoundNode::<_, _, i32>::create_root(&dp, 0, 1, None);
+        let node = DualBoundNode::<_, _, i32, usize>::create_root(&dp, 0, 1, None);
         assert!(node.is_some());
         let node = node.unwrap();
         let child = node.create_child(&dp, 1, 2, 0, Some(5), None);
@@ -369,7 +377,7 @@ mod tests {
     #[test]
     fn test_create_child_with_primal_bound_none_minimization() {
         let dp = MockDp(OptimizationMode::Minimization);
-        let node = DualBoundNode::<_, _, i32>::create_root(&dp, 0, 1, None);
+        let node = DualBoundNode::<_, _, i32, usize>::create_root(&dp, 0, 1, None);
         assert!(node.is_some());
         let node = node.unwrap();
         let child = node.create_child(&dp, 1, 2, 0, Some(4), None);
@@ -380,10 +388,10 @@ mod tests {
     #[test]
     fn test_create_child_with_other_minimization() {
         let dp = MockDp(OptimizationMode::Minimization);
-        let node = DualBoundNode::<_, _, i32>::create_root(&dp, 0, 1, None);
+        let node = DualBoundNode::<_, _, i32, usize>::create_root(&dp, 0, 1, None);
         assert!(node.is_some());
         let node = node.unwrap();
-        let other = DualBoundNode::<_, _, i32>::create_root(&dp, 1, 3, None);
+        let other = DualBoundNode::<_, _, i32, usize>::create_root(&dp, 1, 3, None);
         assert!(other.is_some());
         let other = other.unwrap();
         let child = node.create_child(&dp, 1, 2, 0, None, Some(&other));
@@ -400,7 +408,7 @@ mod tests {
     #[test]
     fn test_create_child_maximization() {
         let dp = MockDp(OptimizationMode::Maximization);
-        let node = DualBoundNode::<_, _, i32>::create_root(&dp, 0, 1, None);
+        let node = DualBoundNode::<_, _, i32, usize>::create_root(&dp, 0, 1, None);
         assert!(node.is_some());
         let node = node.unwrap();
         let child = node.create_child(&dp, 1, 2, 0, None, None);
@@ -417,7 +425,7 @@ mod tests {
     #[test]
     fn test_create_child_none_maximization() {
         let dp = MockDp(OptimizationMode::Maximization);
-        let node = DualBoundNode::<_, _, i32>::create_root(&dp, 0, 1, None);
+        let node = DualBoundNode::<_, _, i32, usize>::create_root(&dp, 0, 1, None);
         assert!(node.is_some());
         let node = node.unwrap();
         let child = node.create_child(&dp, 6, 2, 0, None, None);
@@ -428,7 +436,7 @@ mod tests {
     #[test]
     fn test_create_child_with_primal_bound_maximization() {
         let dp = MockDp(OptimizationMode::Maximization);
-        let node = DualBoundNode::<_, _, i32>::create_root(&dp, 0, 1, None);
+        let node = DualBoundNode::<_, _, i32, usize>::create_root(&dp, 0, 1, None);
         assert!(node.is_some());
         let node = node.unwrap();
         let child = node.create_child(&dp, 1, 2, 0, Some(3), None);
@@ -445,7 +453,7 @@ mod tests {
     #[test]
     fn test_create_child_with_primal_bound_none_maximization() {
         let dp = MockDp(OptimizationMode::Maximization);
-        let node = DualBoundNode::<_, _, i32>::create_root(&dp, 0, 1, None);
+        let node = DualBoundNode::<_, _, i32, usize>::create_root(&dp, 0, 1, None);
         assert!(node.is_some());
         let node = node.unwrap();
         let child = node.create_child(&dp, 1, 2, 0, Some(4), None);
@@ -456,10 +464,10 @@ mod tests {
     #[test]
     fn test_create_child_with_other_maximization() {
         let dp = MockDp(OptimizationMode::Maximization);
-        let node = DualBoundNode::<_, _, i32>::create_root(&dp, 0, 1, None);
+        let node = DualBoundNode::<_, _, i32, usize>::create_root(&dp, 0, 1, None);
         assert!(node.is_some());
         let node = node.unwrap();
-        let other = DualBoundNode::<_, _, i32>::create_root(&dp, 1, 3, None);
+        let other = DualBoundNode::<_, _, i32, usize>::create_root(&dp, 1, 3, None);
         assert!(other.is_some());
         let other = other.unwrap();
         let child = node.create_child(&dp, 1, 2, 0, None, Some(&other));
@@ -476,7 +484,7 @@ mod tests {
     #[test]
     fn test_clone() {
         let dp = MockDp(OptimizationMode::Minimization);
-        let node = DualBoundNode::<_, _, i32>::create_root(&dp, 0, 1, None);
+        let node = DualBoundNode::<_, _, i32, usize>::create_root(&dp, 0, 1, None);
         assert!(node.is_some());
         let node = node.unwrap();
         let cloned = node.clone();
@@ -490,7 +498,7 @@ mod tests {
     #[test]
     fn test_state_mut() {
         let dp = MockDp(OptimizationMode::Minimization);
-        let node = DualBoundNode::<_, _, i32>::create_root(&dp, 0, 1, None);
+        let node = DualBoundNode::<_, _, i32, usize>::create_root(&dp, 0, 1, None);
         assert!(node.is_some());
         let mut node = node.unwrap();
 
@@ -501,7 +509,7 @@ mod tests {
     #[test]
     fn test_close() {
         let dp = MockDp(OptimizationMode::Minimization);
-        let node = DualBoundNode::<_, _, i32>::create_root(&dp, 0, 1, None);
+        let node = DualBoundNode::<_, _, i32, usize>::create_root(&dp, 0, 1, None);
         assert!(node.is_some());
         let node = node.unwrap();
 
@@ -513,16 +521,16 @@ mod tests {
     #[test]
     fn test_ord_minimization() {
         let dp = MockDp(OptimizationMode::Minimization);
-        let node1 = DualBoundNode::<_, _, i32>::create_root(&dp, 3, 2, None);
+        let node1 = DualBoundNode::<_, _, i32, usize>::create_root(&dp, 3, 2, None);
         assert!(node1.is_some());
         let node1 = node1.unwrap();
-        let node2 = DualBoundNode::<_, _, i32>::create_root(&dp, 4, 2, None);
+        let node2 = DualBoundNode::<_, _, i32, usize>::create_root(&dp, 4, 2, None);
         assert!(node2.is_some());
         let node2 = node2.unwrap();
-        let node3 = DualBoundNode::<_, _, i32>::create_root(&dp, 2, 1, None);
+        let node3 = DualBoundNode::<_, _, i32, usize>::create_root(&dp, 2, 1, None);
         assert!(node3.is_some());
         let node3 = node3.unwrap();
-        let node4 = DualBoundNode::<_, _, i32>::create_root(&dp, 2, 0, None);
+        let node4 = DualBoundNode::<_, _, i32, usize>::create_root(&dp, 2, 0, None);
         assert!(node4.is_some());
         let node4 = node4.unwrap();
 
@@ -537,16 +545,16 @@ mod tests {
     #[test]
     fn test_ord_maximization() {
         let dp = MockDp(OptimizationMode::Maximization);
-        let node1 = DualBoundNode::<_, _, i32>::create_root(&dp, 3, 2, None);
+        let node1 = DualBoundNode::<_, _, i32, usize>::create_root(&dp, 3, 2, None);
         assert!(node1.is_some());
         let node1 = node1.unwrap();
-        let node2 = DualBoundNode::<_, _, i32>::create_root(&dp, 4, 2, None);
+        let node2 = DualBoundNode::<_, _, i32, usize>::create_root(&dp, 4, 2, None);
         assert!(node2.is_some());
         let node2 = node2.unwrap();
-        let node3 = DualBoundNode::<_, _, i32>::create_root(&dp, 2, 1, None);
+        let node3 = DualBoundNode::<_, _, i32, usize>::create_root(&dp, 2, 1, None);
         assert!(node3.is_some());
         let node3 = node3.unwrap();
-        let node4 = DualBoundNode::<_, _, i32>::create_root(&dp, 2, 0, None);
+        let node4 = DualBoundNode::<_, _, i32, usize>::create_root(&dp, 2, 0, None);
         assert!(node4.is_some());
         let node4 = node4.unwrap();
 

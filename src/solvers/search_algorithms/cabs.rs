@@ -29,7 +29,7 @@ impl Default for CabsParameters {
 /// Complete anytime beam search (CABS).
 ///
 /// CABS repeats beam search while doubling the beam width until a termination condition is met.
-pub struct Cabs<D, C, R, B> {
+pub struct Cabs<D, C, L, R, B> {
     dp: D,
     root_node_constructor: R,
     beam_search: B,
@@ -37,17 +37,18 @@ pub struct Cabs<D, C, R, B> {
     cabs_parameters: CabsParameters,
     beam_width: usize,
     primal_bound: Option<C>,
-    solution: Solution<C>,
+    solution: Solution<C, L>,
     is_terminated: bool,
     timer: Timer,
 }
 
-impl<D, C, N, R, B, S, K> Cabs<D, C, R, B>
+impl<D, C, L, N, R, B, S, K> Cabs<D, C, L, R, B>
 where
-    D: Dp<State = S, CostType = C> + Dominance<State = S, Key = K>,
+    D: Dp<State = S, CostType = C, Label = L> + Dominance<State = S, Key = K>,
+    L: Clone,
     R: FnMut(&D, Option<C>) -> Option<N>,
-    N: SearchNode<DpData = D, State = S, CostType = C>,
-    B: FnMut(&D, N, &BeamSearchParameters<C>) -> Solution<C>,
+    N: SearchNode<DpData = D, State = S, CostType = C, Label = L>,
+    B: FnMut(&D, N, &BeamSearchParameters<C>) -> Solution<C, L>,
     C: Ord + Copy + Display,
     K: Hash + Eq,
 {
@@ -98,11 +99,10 @@ where
         {
             if !self.parameters.quiet {
                 println!(
-                    "New dual bound: {}, expanded: {}, generated: {}, elapsed time: {}s.",
-                    dual_bound,
-                    self.solution.expanded,
-                    self.solution.generated,
-                    self.timer.get_elapsed_time()
+                    "New dual bound: {dual_bound}, expanded: {expanded}, generated: {generated}, elapsed time: {time}s.",
+                    expanded = self.solution.expanded,
+                    generated = self.solution.generated,
+                    time = self.timer.get_elapsed_time()
                 );
             }
 
@@ -114,7 +114,7 @@ where
         }
     }
 
-    fn stop_timer_and_return_solution(&mut self) -> Solution<C> {
+    fn stop_timer_and_return_solution(&mut self) -> Solution<C, L> {
         self.solution.time = self.timer.get_elapsed_time();
         self.timer.stop();
 
@@ -122,18 +122,20 @@ where
     }
 }
 
-impl<D, C, N, R, B, S, K> Search for Cabs<D, C, R, B>
+impl<D, C, L, N, R, B, S, K> Search for Cabs<D, C, L, R, B>
 where
-    D: Dp<State = S, CostType = C> + Dominance<State = S, Key = K>,
+    D: Dp<State = S, CostType = C, Label = L> + Dominance<State = S, Key = K>,
+    L: Clone,
     R: FnMut(&D, Option<C>) -> Option<N>,
-    N: SearchNode<DpData = D, State = S, CostType = C>,
-    B: FnMut(&D, N, &BeamSearchParameters<C>) -> Solution<C>,
+    N: SearchNode<DpData = D, State = S, CostType = C, Label = L>,
+    B: FnMut(&D, N, &BeamSearchParameters<C>) -> Solution<C, L>,
     C: Ord + Copy + Display,
     K: Hash + Eq,
 {
     type CostType = C;
+    type Label = L;
 
-    fn search_next(&mut self) -> (Solution<Self::CostType>, bool) {
+    fn search_next(&mut self) -> (Solution<Self::CostType, Self::Label>, bool) {
         self.timer.start();
 
         if self.is_terminated {
@@ -191,11 +193,11 @@ where
 
             if !self.parameters.quiet {
                 println!(
-                    "Searched with beam width {}, expanded: {}, generated: {}, elapsed time: {}s.",
-                    self.beam_width,
-                    self.solution.expanded,
-                    self.solution.generated,
-                    self.timer.get_elapsed_time()
+                    "Searched with beam width {beam_width}, expanded: {expanded}, generated: {generated}, elapsed time: {time}s.",
+                    beam_width = self.beam_width,
+                    expanded = self.solution.expanded,
+                    generated = self.solution.generated,
+                    time = self.timer.get_elapsed_time()
                 );
             }
 
@@ -217,11 +219,11 @@ where
 
                 if !self.parameters.quiet {
                     println!(
-                        "New primal bound {}, expanded: {}, generated: {}, elapsed time: {}s.",
-                        cost,
-                        self.solution.expanded,
-                        self.solution.generated,
-                        self.timer.get_elapsed_time()
+                        "New primal bound: {solution_cost}, expanded: {expanded}, generated: {generated}, elapsed time: {time}s.",
+                        solution_cost = cost,
+                        expanded = self.solution.expanded,
+                        generated = self.solution.generated,
+                        time = self.timer.get_elapsed_time()
                     );
                 }
 
@@ -285,6 +287,7 @@ mod tests {
     impl Dp for MockDp {
         type State = i32;
         type CostType = i32;
+        type Label = usize;
 
         fn get_target(&self) -> Self::State {
             self.0
@@ -293,16 +296,12 @@ mod tests {
         fn get_successors(
             &self,
             state: &Self::State,
-        ) -> impl IntoIterator<Item = (Self::State, Self::CostType, usize)> {
+        ) -> impl IntoIterator<Item = (Self::State, Self::CostType, Self::Label)> {
             vec![(*state - 1, 1, 1)]
         }
 
         fn get_base_cost(&self, state: &Self::State) -> Option<Self::CostType> {
-            if *state <= 0 {
-                Some(0)
-            } else {
-                None
-            }
+            if *state <= 0 { Some(0) } else { None }
         }
     }
 
@@ -321,6 +320,7 @@ mod tests {
         type DpData = MockDp;
         type State = i32;
         type CostType = i32;
+        type Label = usize;
 
         fn get_state(&self, _: &Self::DpData) -> &Self::State {
             &self.0
@@ -346,7 +346,7 @@ mod tests {
             self.2.get()
         }
 
-        fn get_transitions(&self, _: &Self::DpData) -> Vec<usize> {
+        fn get_transitions(&self, _: &Self::DpData) -> Vec<Self::Label> {
             self.3.clone()
         }
     }
