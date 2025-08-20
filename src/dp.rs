@@ -111,7 +111,7 @@ pub trait Dp {
     type State;
     /// Type of the cost. Usually, `i32` or `f64`.
     type CostType: PartialOrd + Add<Output = Self::CostType> + Zero;
-    /// Type of the transition label. Usually, an unsigned integer type.
+    /// Type of the transition label. Usually, an unsigned integer type or `bool` (e.g., the knapsack problem).
     type Label;
 
     /// Gets the target (initial) state.
