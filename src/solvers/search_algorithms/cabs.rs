@@ -1,7 +1,7 @@
 use super::beam_search::BeamSearchParameters;
 use super::search::{Search, SearchParameters, Solution};
 use super::search_nodes::SearchNode;
-use crate::dp::{Dominance, Dp};
+use crate::dp::{Dominance, DpMut};
 use crate::timer::Timer;
 use std::fmt::Display;
 use std::hash::Hash;
@@ -44,11 +44,11 @@ pub struct Cabs<D, C, L, R, B> {
 
 impl<D, C, L, N, R, B, S, K> Cabs<D, C, L, R, B>
 where
-    D: Dp<State = S, CostType = C, Label = L> + Dominance<State = S, Key = K>,
+    D: DpMut<State = S, CostType = C, Label = L> + Dominance<State = S, Key = K>,
     L: Clone,
-    R: FnMut(&D, Option<C>) -> Option<N>,
+    R: FnMut(&mut D, Option<C>) -> Option<N>,
     N: SearchNode<DpData = D, State = S, CostType = C, Label = L>,
-    B: FnMut(&D, N, &BeamSearchParameters<C>) -> Solution<C, L>,
+    B: FnMut(&mut D, N, &BeamSearchParameters<C>) -> Solution<C, L>,
     C: Ord + Copy + Display,
     K: Hash + Eq,
 {
@@ -124,11 +124,11 @@ where
 
 impl<D, C, L, N, R, B, S, K> Search for Cabs<D, C, L, R, B>
 where
-    D: Dp<State = S, CostType = C, Label = L> + Dominance<State = S, Key = K>,
+    D: DpMut<State = S, CostType = C, Label = L> + Dominance<State = S, Key = K>,
     L: Clone,
-    R: FnMut(&D, Option<C>) -> Option<N>,
+    R: FnMut(&mut D, Option<C>) -> Option<N>,
     N: SearchNode<DpData = D, State = S, CostType = C, Label = L>,
-    B: FnMut(&D, N, &BeamSearchParameters<C>) -> Solution<C, L>,
+    B: FnMut(&mut D, N, &BeamSearchParameters<C>) -> Solution<C, L>,
     C: Ord + Copy + Display,
     K: Hash + Eq,
 {
@@ -156,7 +156,7 @@ where
                     false
                 };
 
-            let root_node = (self.root_node_constructor)(&self.dp, self.primal_bound);
+            let root_node = (self.root_node_constructor)(&mut self.dp, self.primal_bound);
 
             if root_node.is_none() {
                 self.solution.is_infeasible = true;
@@ -186,7 +186,7 @@ where
                 },
             };
 
-            let solution = (self.beam_search)(&self.dp, root_node, &beam_search_parameters);
+            let solution = (self.beam_search)(&mut self.dp, root_node, &beam_search_parameters);
 
             self.solution.expanded += solution.expanded;
             self.solution.generated += solution.generated;
@@ -277,6 +277,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dp::Dp;
     use crate::solvers::search_algorithms::beam_search;
     use std::cell::Cell;
     use std::cmp::Ordering;
@@ -374,28 +375,28 @@ mod tests {
     #[test]
     fn test_search() {
         let dp = MockDp(2);
-        let root_node_constructor = |dp: &MockDp, _| {
+        let root_node_constructor = |dp: &mut _, _| {
             Some(MockNode(
-                dp.get_target(),
-                dp.get_identity_weight(),
+                Dp::get_target(dp),
+                Dp::get_identity_weight(dp),
                 Cell::new(false),
                 Vec::new(),
             ))
         };
-        let node_constructor = |_: &_, state, cost, transition, parent: &MockNode, _| {
+        let node_constructor = |_: &mut _, state, cost, transition, parent: &MockNode, _| {
             let mut transitions = parent.3.clone();
             transitions.push(transition);
             Some(MockNode(state, cost, Cell::new(false), transitions))
         };
-        let solution_checker = |dp: &MockDp, node: &MockNode| {
+        let solution_checker = |dp: &mut MockDp, node: &MockNode| {
             dp.get_base_cost(node.get_state(dp)).map(|cost| {
                 (
-                    dp.combine_cost_weights(node.get_cost(dp), cost),
+                    Dp::combine_cost_weights(dp, node.get_cost(dp), cost),
                     node.3.clone(),
                 )
             })
         };
-        let beam_search_closure = move |dp: &_, root_node, parameters: &_| {
+        let beam_search_closure = move |dp: &mut _, root_node, parameters: &_| {
             beam_search(
                 dp,
                 root_node,
@@ -432,28 +433,28 @@ mod tests {
     #[test]
     fn test_search_infeasible() {
         let dp = MockDp(2);
-        let root_node_constructor = |dp: &MockDp, _| {
+        let root_node_constructor = |dp: &mut _, _| {
             Some(MockNode(
-                dp.get_target(),
-                dp.get_identity_weight(),
+                Dp::get_target(dp),
+                Dp::get_identity_weight(dp),
                 Cell::new(false),
                 Vec::new(),
             ))
         };
-        let node_constructor = |_: &_, state, cost, transition, parent: &MockNode, _| {
+        let node_constructor = |_: &mut _, state, cost, transition, parent: &MockNode, _| {
             let mut transitions = parent.3.clone();
             transitions.push(transition);
             Some(MockNode(state, cost, Cell::new(false), transitions))
         };
-        let solution_checker = |dp: &MockDp, node: &MockNode| {
+        let solution_checker = |dp: &mut MockDp, node: &MockNode| {
             dp.get_base_cost(node.get_state(dp)).map(|cost| {
                 (
-                    dp.combine_cost_weights(node.get_cost(dp), cost),
+                    Dp::combine_cost_weights(dp, node.get_cost(dp), cost),
                     node.3.clone(),
                 )
             })
         };
-        let beam_search_closure = move |dp: &_, root_node, parameters: &_| {
+        let beam_search_closure = move |dp: &mut _, root_node, parameters: &_| {
             beam_search(
                 dp,
                 root_node,

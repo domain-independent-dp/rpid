@@ -295,6 +295,174 @@ pub trait Bound {
     }
 }
 
+/// Trait for dynamic programming problems.
+///
+/// This trait is similar to the `Dp` trait, but it allows mutable access to the problem struct
+/// when generating successors and get the base cost.
+/// This is useful when the problem struct contains data that needs to be updated during the search.
+///
+/// This trait defines the methods that a dynamic programming problem must implement.
+/// Data necessary for the problem should be stored in the struct that implements this trait, e.g.,
+/// some caching.
+///
+/// By default, the solution cost is computed by summing the cost weights of the transitions,
+/// and minimization is assumed.
+/// Override the methods to change this behavior.
+pub trait DpMut {
+    /// Type of the state.
+    type State;
+    /// Type of the cost. Usually, `i32` or `f64`.
+    type CostType: PartialOrd + Add<Output = Self::CostType> + Zero;
+    /// Type of the transition label. Usually, an unsigned integer type or `bool` (e.g., the knapsack problem).
+    type Label;
+
+    /// Gets the target (initial) state.
+    fn get_target(&self) -> Self::State;
+
+    /// Gets the successors of a state.
+    ///
+    /// The easiest way to implement this method is to return a vector (`Vec<(Self::State, Self::CostType, Self::Label)>`)
+    /// or an array ([`(Self::State, Self::CostType, Self::Label); N]`), where the first element of a tuple is the successor state,
+    /// the second element is the cost weight of the transition, and the third element is the label of the transition.
+    /// However, by returning an iterator, you can avoid allocating memory for the successors.
+    fn get_successors(
+        &mut self,
+        state: &Self::State,
+        successors: &mut Vec<(Self::State, Self::CostType, Self::Label)>,
+    );
+
+    /// Checks if a state is a base (goal) state and returns the base cost if it is.
+    fn get_base_cost(&mut self, state: &Self::State) -> Option<Self::CostType>;
+
+    /// Combines two cost weights.
+    ///
+    /// This method is used to combine the cost weights of two transitions.
+    /// Addition is used by default, but you can override this method to use a different operation.
+    /// However, the operation must be associative and isotone, e.g.,
+    /// (a + b) + c = a + (b + c) and a ≤ b → a + c ≤ b + c.
+    fn combine_cost_weights(&self, a: Self::CostType, b: Self::CostType) -> Self::CostType {
+        a + b
+    }
+
+    /// Gets the identity weight.
+    ///
+    /// This method returns the identity element of the `combine_cost_weights` operation, e.g.,
+    /// a + 0 = 0 + a = a.
+    /// The default implementation returns `Self::CostType::zero()`.
+    fn get_identity_weight(&self) -> Self::CostType {
+        Self::CostType::zero()
+    }
+
+    /// Returns the optimization mode of the problem.
+    ///
+    /// The default implementation returns `OptimizationMode::Minimization`.
+    fn get_optimization_mode(&self) -> OptimizationMode {
+        OptimizationMode::Minimization
+    }
+
+    /// Returns whether the cost is better than the old cost.
+    ///
+    /// By default, this method follows the maximization flag.
+    fn is_better_cost(&self, new_cost: Self::CostType, old_cost: Self::CostType) -> bool {
+        match self.get_optimization_mode() {
+            OptimizationMode::Minimization => new_cost < old_cost,
+            OptimizationMode::Maximization => new_cost > old_cost,
+        }
+    }
+}
+
+impl<T: Dp> DpMut for T {
+    type State = T::State;
+    type CostType = T::CostType;
+    type Label = T::Label;
+
+    fn get_target(&self) -> Self::State {
+        Dp::get_target(self)
+    }
+
+    fn get_successors(
+        &mut self,
+        state: &Self::State,
+        successors: &mut Vec<(Self::State, Self::CostType, Self::Label)>,
+    ) {
+        successors.extend(Dp::get_successors(self, state));
+    }
+
+    fn get_base_cost(&mut self, state: &Self::State) -> Option<Self::CostType> {
+        Dp::get_base_cost(self, state)
+    }
+
+    fn combine_cost_weights(&self, a: Self::CostType, b: Self::CostType) -> Self::CostType {
+        Dp::combine_cost_weights(self, a, b)
+    }
+
+    fn get_identity_weight(&self) -> Self::CostType {
+        Dp::get_identity_weight(self)
+    }
+
+    fn get_optimization_mode(&self) -> OptimizationMode {
+        Dp::get_optimization_mode(self)
+    }
+
+    fn is_better_cost(&self, new_cost: Self::CostType, old_cost: Self::CostType) -> bool {
+        Dp::is_better_cost(self, new_cost, old_cost)
+    }
+}
+
+/// Trait for computing dual bounds depending on a state.
+///
+/// This trait is similar to the `Bound` trait, but it allows mutable access to the problem struct
+/// when evaluating the dual bound function.
+/// This is useful when the problem struct contains data that needs to be updated during the search, e.g.,
+/// some caching.
+///
+/// A dual bound is a lower/upper bound on the cost of the optimal solution
+/// in a minimization/maximization problem.
+pub trait BoundMut {
+    /// Type of the state.
+    type State;
+    /// Type of the cost.
+    type CostType;
+
+    /// Gets the dual bound of a state.
+    ///
+    /// Returns `None` if the state is not feasible.
+    fn get_dual_bound(&mut self, state: &Self::State) -> Option<Self::CostType>;
+
+    /// Gets the global primal bound.
+    ///
+    /// The default implementation returns `None`, which means that the global primal bound is not used.
+    /// The global primal bound is an upper/lower bound on the cost of the optimal solution in a minimization/maximization problem.
+    fn get_global_primal_bound(&self) -> Option<Self::CostType> {
+        None
+    }
+
+    /// Gets the global dual bound.
+    ///
+    /// The default implementation returns `None`, which means that the global dual bound is not used.
+    /// The global dual bound is an lower/upper bound on the cost of the optimal solution in a minimization/maximization problem.
+    fn get_global_dual_bound(&self) -> Option<Self::CostType> {
+        None
+    }
+}
+
+impl<T: Bound> BoundMut for T {
+    type State = T::State;
+    type CostType = T::CostType;
+
+    fn get_dual_bound(&mut self, state: &Self::State) -> Option<Self::CostType> {
+        Bound::get_dual_bound(self, state)
+    }
+
+    fn get_global_primal_bound(&self) -> Option<Self::CostType> {
+        Bound::get_global_primal_bound(self)
+    }
+
+    fn get_global_dual_bound(&self) -> Option<Self::CostType> {
+        Bound::get_global_dual_bound(self)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -343,25 +511,28 @@ mod tests {
     #[test]
     fn test_combine_cost_weights() {
         let dp = MockDp;
-        assert_eq!(dp.combine_cost_weights(1, 2), 3);
+        assert_eq!(Dp::combine_cost_weights(&dp, 1, 2), 3);
     }
 
     #[test]
     fn test_get_identity_weight() {
         let dp = MockDp;
-        assert_eq!(dp.get_identity_weight(), 0);
+        assert_eq!(Dp::get_identity_weight(&dp), 0);
     }
 
     #[test]
     fn test_get_optimization_mode() {
         let dp = MockDp;
-        assert_eq!(dp.get_optimization_mode(), OptimizationMode::Minimization);
+        assert_eq!(
+            Dp::get_optimization_mode(&dp),
+            OptimizationMode::Minimization
+        );
     }
 
     #[test]
     fn test_is_better_cost() {
         let dp = MockDp;
-        assert!(dp.is_better_cost(1, 2));
+        assert!(Dp::is_better_cost(&dp, 1, 2));
     }
 
     #[test]
@@ -373,12 +544,80 @@ mod tests {
     #[test]
     fn test_get_global_primal_bound() {
         let dp = MockDp;
-        assert_eq!(dp.get_global_primal_bound(), None);
+        assert_eq!(Bound::get_global_primal_bound(&dp), None);
     }
 
     #[test]
     fn test_get_global_dual_bound() {
         let dp = MockDp;
+        assert_eq!(BoundMut::get_global_dual_bound(&dp), None);
+    }
+
+    struct MockDpMut;
+
+    impl DpMut for MockDpMut {
+        type State = i32;
+        type CostType = i32;
+        type Label = usize;
+
+        fn get_target(&self) -> Self::State {
+            0
+        }
+
+        fn get_successors(
+            &mut self,
+            _: &Self::State,
+            _: &mut Vec<(Self::State, Self::CostType, Self::Label)>,
+        ) {
+        }
+
+        fn get_base_cost(&mut self, _state: &Self::State) -> Option<Self::CostType> {
+            None
+        }
+    }
+
+    impl BoundMut for MockDpMut {
+        type State = i32;
+        type CostType = i32;
+
+        fn get_dual_bound(&mut self, _: &Self::State) -> Option<Self::CostType> {
+            Some(0)
+        }
+    }
+
+    #[test]
+    fn test_combine_cost_weights_mut() {
+        let dp = MockDpMut;
+        assert_eq!(dp.combine_cost_weights(1, 2), 3);
+    }
+
+    #[test]
+    fn test_get_identity_weight_mut() {
+        let dp = MockDpMut;
+        assert_eq!(dp.get_identity_weight(), 0);
+    }
+
+    #[test]
+    fn test_get_optimization_mode_mut() {
+        let dp = MockDpMut;
+        assert_eq!(dp.get_optimization_mode(), OptimizationMode::Minimization);
+    }
+
+    #[test]
+    fn test_is_better_cost_mut() {
+        let dp = MockDpMut;
+        assert!(dp.is_better_cost(1, 2));
+    }
+
+    #[test]
+    fn test_get_global_primal_bound_mut() {
+        let dp = MockDpMut;
+        assert_eq!(dp.get_global_primal_bound(), None);
+    }
+
+    #[test]
+    fn test_get_global_dual_bound_mut() {
+        let dp = MockDpMut;
         assert_eq!(dp.get_global_dual_bound(), None);
     }
 }
