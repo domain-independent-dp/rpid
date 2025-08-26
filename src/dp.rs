@@ -370,7 +370,7 @@ pub trait DpMut {
         }
     }
 
-    /// Get information of a new primal bound.
+    /// Notifies information of a new primal bound.
     fn notify_primal_bound(&mut self, _primal_bound: Self::CostType) {}
 }
 
