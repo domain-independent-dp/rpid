@@ -1,6 +1,6 @@
 use super::search::{ExpansionResult, Search, SearchBase, SearchParameters, Solution};
 use super::search_nodes::SearchNode;
-use crate::dp::{Dominance, Dp};
+use crate::dp::{Dominance, DpMut};
 use crate::timer::Timer;
 use std::collections::BinaryHeap;
 use std::fmt::Display;
@@ -8,21 +8,21 @@ use std::hash::Hash;
 use std::rc::Rc;
 
 /// Best-first search.
-pub struct BestFirstSearch<D, C, L, K, N, F, G> {
-    base: SearchBase<D, C, L, K, N, F, G>,
+pub struct BestFirstSearch<D, S, C, L, K, N, F, G> {
+    base: SearchBase<D, S, C, L, K, N, F, G>,
     open: BinaryHeap<Rc<N>>,
     timer: Timer,
 }
 
-impl<D, C, L, K, N, F, G, S> BestFirstSearch<D, C, L, K, N, F, G>
+impl<D, S, C, L, K, N, F, G> BestFirstSearch<D, S, C, L, K, N, F, G>
 where
-    D: Dp<State = S, CostType = C, Label = L> + Dominance<State = S, Key = K>,
+    D: DpMut<State = S, CostType = C, Label = L> + Dominance<State = S, Key = K>,
     C: Ord + Copy + Display,
     L: Copy,
     K: Hash + Eq,
     N: Ord + SearchNode<DpData = D, State = S, CostType = C, Label = L>,
-    F: FnMut(&D, S, C, L, &N, Option<C>, Option<&N>) -> Option<N>,
-    G: FnMut(&D, &N) -> Option<(C, Vec<L>)>,
+    F: FnMut(&mut D, S, C, L, &N, Option<C>, Option<&N>) -> Option<N>,
+    G: FnMut(&mut D, &N) -> Option<(C, Vec<L>)>,
 {
     /// Creates a new instance of the best-first search algorithm.
     ///
@@ -35,7 +35,7 @@ where
     /// and returns the cost and transitions if it is.
     pub fn new(
         dp: D,
-        root_node_constructor: impl FnOnce(&D, Option<C>) -> Option<N>,
+        root_node_constructor: impl FnOnce(&mut D, Option<C>) -> Option<N>,
         node_constructor: F,
         solution_checker: G,
         parameters: SearchParameters<C>,
@@ -64,15 +64,15 @@ where
     }
 }
 
-impl<D, C, L, K, N, F, G, S> Search for BestFirstSearch<D, C, L, K, N, F, G>
+impl<D, S, C, L, K, N, F, G> Search for BestFirstSearch<D, S, C, L, K, N, F, G>
 where
-    D: Dp<State = S, CostType = C, Label = L> + Dominance<State = S, Key = K>,
+    D: DpMut<State = S, CostType = C, Label = L> + Dominance<State = S, Key = K>,
     C: Ord + Copy + Display,
     L: Copy,
     K: Hash + Eq,
     N: Ord + SearchNode<DpData = D, State = S, CostType = C, Label = L>,
-    F: FnMut(&D, S, C, L, &N, Option<C>, Option<&N>) -> Option<N>,
-    G: FnMut(&D, &N) -> Option<(C, Vec<L>)>,
+    F: FnMut(&mut D, S, C, L, &N, Option<C>, Option<&N>) -> Option<N>,
+    G: FnMut(&mut D, &N) -> Option<(C, Vec<L>)>,
 {
     type CostType = C;
     type Label = L;
@@ -136,6 +136,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dp::Dp;
     use std::cell::Cell;
     use std::cmp::Ordering;
 
@@ -232,24 +233,24 @@ mod tests {
     #[test]
     fn test_search() {
         let dp = MockDp(2);
-        let root_node_constructor = |dp: &MockDp, _| {
+        let root_node_constructor = |dp: &mut _, _| {
             Some(MockNode(
-                dp.get_target(),
-                dp.get_identity_weight(),
+                Dp::get_target(dp),
+                Dp::get_identity_weight(dp),
                 Cell::new(false),
                 Vec::new(),
             ))
         };
         let node_constructor =
-            |_: &_, state, cost, transition, parent: &MockNode, _, _: Option<&_>| {
+            |_: &mut _, state, cost, transition, parent: &MockNode, _, _: Option<&_>| {
                 let mut transitions = parent.3.clone();
                 transitions.push(transition);
                 Some(MockNode(state, cost, Cell::new(false), transitions))
             };
-        let solution_checker = |dp: &MockDp, node: &MockNode| {
+        let solution_checker = |dp: &mut MockDp, node: &MockNode| {
             dp.get_base_cost(node.get_state(dp)).map(|cost| {
                 (
-                    dp.combine_cost_weights(node.get_cost(dp), cost),
+                    Dp::combine_cost_weights(dp, node.get_cost(dp), cost),
                     node.3.clone(),
                 )
             })
@@ -280,24 +281,24 @@ mod tests {
     #[test]
     fn test_search_infeasible() {
         let dp = MockDp(2);
-        let root_node_constructor = |dp: &MockDp, _| {
+        let root_node_constructor = |dp: &mut _, _| {
             Some(MockNode(
-                dp.get_target(),
-                dp.get_identity_weight(),
+                Dp::get_target(dp),
+                Dp::get_identity_weight(dp),
                 Cell::new(false),
                 Vec::new(),
             ))
         };
         let node_constructor =
-            |_: &_, state, cost, transition, parent: &MockNode, _, _: Option<&_>| {
+            |_: &mut _, state, cost, transition, parent: &MockNode, _, _: Option<&_>| {
                 let mut transitions = parent.3.clone();
                 transitions.push(transition);
                 Some(MockNode(state, cost, Cell::new(false), transitions))
             };
-        let solution_checker = |dp: &MockDp, node: &MockNode| {
+        let solution_checker = |dp: &mut MockDp, node: &MockNode| {
             dp.get_base_cost(node.get_state(dp)).map(|cost| {
                 (
-                    dp.combine_cost_weights(node.get_cost(dp), cost),
+                    Dp::combine_cost_weights(dp, node.get_cost(dp), cost),
                     node.3.clone(),
                 )
             })

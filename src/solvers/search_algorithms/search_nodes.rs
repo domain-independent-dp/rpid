@@ -5,7 +5,7 @@ mod dual_bound_node;
 mod id_tree;
 mod state_registry;
 
-pub use crate::dp::Dp;
+pub use crate::dp::DpMut;
 pub use cost_node::CostNode;
 pub use dual_bound_node::DualBoundNode;
 pub use id_tree::IdTree;
@@ -14,7 +14,7 @@ pub use state_registry::{InsertionResult, StateRegistry};
 /// Trait for search nodes.
 pub trait SearchNode: Sized {
     /// Type of the DP data.
-    type DpData: Dp<State = Self::State, CostType = Self::CostType>;
+    type DpData: DpMut<State = Self::State, CostType = Self::CostType>;
     /// Type of the state.
     type State;
     /// Type of the cost.
@@ -44,7 +44,7 @@ pub trait SearchNode: Sized {
     fn get_transitions(&self, dp: &Self::DpData) -> Vec<Self::Label>;
 
     /// Checks if the node is a solution and returns the cost and transitions if it is.
-    fn check_solution(&self, dp: &Self::DpData) -> Option<(Self::CostType, Vec<Self::Label>)> {
+    fn check_solution(&self, dp: &mut Self::DpData) -> Option<(Self::CostType, Vec<Self::Label>)> {
         let state = self.get_state(dp);
         let cost = self.get_cost(dp);
 
@@ -69,6 +69,7 @@ pub trait SearchNode: Sized {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dp::Dp;
 
     struct MockDp;
 
@@ -134,17 +135,17 @@ mod tests {
 
     #[test]
     fn test_check_solution() {
-        let dp = MockDp;
+        let mut dp = MockDp;
         let node = MockNode(0);
 
-        assert_eq!(node.check_solution(&dp), Some((2, vec![0, 1])));
+        assert_eq!(node.check_solution(&mut dp), Some((2, vec![0, 1])));
     }
 
     #[test]
     fn test_check_solution_none() {
-        let dp = MockDp;
+        let mut dp = MockDp;
         let node = MockNode(1);
 
-        assert_eq!(node.check_solution(&dp), None);
+        assert_eq!(node.check_solution(&mut dp), None);
     }
 }

@@ -1,5 +1,5 @@
 use super::SearchNode;
-use crate::dp::{Dominance, Dp};
+use crate::dp::{Dominance, DpMut};
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
 use std::cmp::Ordering;
@@ -48,7 +48,7 @@ impl<K, N, D, S, C> StateRegistry<K, N>
 where
     K: Hash + Eq,
     N: SearchNode<DpData = D, State = S, CostType = C>,
-    D: Dp<State = S, CostType = C> + Dominance<State = S, Key = K>,
+    D: DpMut<State = S, CostType = C> + Dominance<State = S, Key = K>,
     C: Ord + Copy,
 {
     /// Creates a new state registry with the given capacity.
@@ -61,7 +61,7 @@ where
 
     fn remove_dominated(
         list: &mut SmallVec<[Rc<N>; 1]>,
-        dp: &D,
+        dp: &mut D,
         state: &S,
         cost: C,
     ) -> Option<RemoveResult<N>> {
@@ -103,7 +103,7 @@ where
     }
 
     /// Inserts a node into the registry if it is not dominated by any other node.
-    pub fn insert_if_not_dominated(&mut self, dp: &D, mut node: N) -> InsertionResult<N> {
+    pub fn insert_if_not_dominated(&mut self, dp: &mut D, mut node: N) -> InsertionResult<N> {
         match self.map.entry(dp.get_key(node.get_state(dp))) {
             Entry::Occupied(entry) => {
                 // Update the key of the state by the already stored key to reduce memory usage.
@@ -144,10 +144,10 @@ where
     /// If the constructor returns `None`, the node is not inserted.
     pub fn insert_with_if_not_dominated(
         &mut self,
-        dp: &D,
+        dp: &mut D,
         mut state: S,
         cost: C,
-        constructor: impl FnOnce(S, C, Option<&N>) -> Option<N>,
+        constructor: impl FnOnce(&mut D, S, C, Option<&N>) -> Option<N>,
     ) -> InsertionResult<N> {
         match self.map.entry(dp.get_key(&state)) {
             Entry::Occupied(entry) => {
@@ -164,7 +164,7 @@ where
                 let result = result.unwrap();
                 let same_state_information =
                     result.same_state_index.map(|i| result.dominated[i].deref());
-                let node = constructor(state, cost, same_state_information);
+                let node = constructor(dp, state, cost, same_state_information);
 
                 let inserted = if let Some(node) = node {
                     let inserted = Rc::from(node);
@@ -181,7 +181,7 @@ where
                 }
             }
             Entry::Vacant(entry) => {
-                if let Some(node) = constructor(state, cost, None) {
+                if let Some(node) = constructor(dp, state, cost, None) {
                     let inserted = Rc::new(node);
                     entry.insert(SmallVec::from_vec(vec![inserted.clone()]));
 
@@ -203,9 +203,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::solvers::search_algorithms::CostNode;
-
     use super::*;
+    use crate::dp::{Dominance, Dp};
+    use crate::solvers::search_algorithms::CostNode;
 
     struct MockDp;
 
@@ -254,12 +254,12 @@ mod tests {
     #[test]
     fn test_insert_if_not_dominated() {
         let mut registry = StateRegistry::default();
-        let dp = MockDp;
+        let mut dp = MockDp;
 
         let state = (7, 7, 7);
         let cost = 7;
         let node = CostNode::create_root(&dp, state, cost);
-        let result = registry.insert_if_not_dominated(&dp, node);
+        let result = registry.insert_if_not_dominated(&mut dp, node);
         assert!(result.inserted.is_some());
         let node = result.inserted.unwrap();
         assert_eq!(node.get_state(&dp), &(7, 7, 7));
@@ -270,7 +270,7 @@ mod tests {
         let state = (6, 8, 8);
         let cost = 8;
         let node = CostNode::create_root(&dp, state, cost);
-        let result = registry.insert_if_not_dominated(&dp, node);
+        let result = registry.insert_if_not_dominated(&mut dp, node);
         assert!(result.inserted.is_some());
         let node = result.inserted.unwrap();
         assert_eq!(node.get_state(&dp), &(6, 8, 8));
@@ -281,7 +281,7 @@ mod tests {
         let state = (7, 6, 6);
         let cost = 8;
         let node = CostNode::create_root(&dp, state, cost);
-        let result = registry.insert_if_not_dominated(&dp, node);
+        let result = registry.insert_if_not_dominated(&mut dp, node);
         assert!(result.inserted.is_some());
         let node = result.inserted.unwrap();
         assert_eq!(node.get_state(&dp), &(7, 6, 6));
@@ -292,7 +292,7 @@ mod tests {
         let state = (7, 7, 8);
         let cost = 6;
         let node = CostNode::create_root(&dp, state, cost);
-        let result = registry.insert_if_not_dominated(&dp, node);
+        let result = registry.insert_if_not_dominated(&mut dp, node);
         assert!(result.inserted.is_some());
         let node = result.inserted.unwrap();
         assert_eq!(node.get_state(&dp), &(7, 7, 8));
@@ -303,7 +303,7 @@ mod tests {
         let state = (7, 7, 7);
         let cost = 8;
         let node = CostNode::create_root(&dp, state, cost);
-        let result = registry.insert_if_not_dominated(&dp, node);
+        let result = registry.insert_if_not_dominated(&mut dp, node);
         assert!(result.inserted.is_none());
         assert!(result.dominated.is_empty());
 
@@ -311,7 +311,7 @@ mod tests {
         let state = (7, 8, 7);
         let cost = 7;
         let node = CostNode::create_root(&dp, state, cost);
-        let result = registry.insert_if_not_dominated(&dp, node);
+        let result = registry.insert_if_not_dominated(&mut dp, node);
         assert!(result.inserted.is_none());
         assert!(result.dominated.is_empty());
 
@@ -319,7 +319,7 @@ mod tests {
         let state = (7, 7, 7);
         let cost = 6;
         let node = CostNode::create_root(&dp, state, cost);
-        let result = registry.insert_if_not_dominated(&dp, node);
+        let result = registry.insert_if_not_dominated(&mut dp, node);
         assert!(result.inserted.is_some());
         let node = result.inserted.unwrap();
         assert_eq!(node.get_state(&dp), &(7, 7, 7));
@@ -336,13 +336,13 @@ mod tests {
     #[test]
     fn test_insert_with_if_not_dominated() {
         let mut registry = StateRegistry::default();
-        let dp = MockDp;
+        let mut dp = MockDp;
         let constructor =
-            |state, cost, _: Option<&_>| Some(CostNode::create_root(&dp, state, cost));
+            |dp: &mut _, state, cost, _: Option<&_>| Some(CostNode::create_root(dp, state, cost));
 
         let state = (7, 7, 7);
         let cost = 7;
-        let result = registry.insert_with_if_not_dominated(&dp, state, cost, constructor);
+        let result = registry.insert_with_if_not_dominated(&mut dp, state, cost, constructor);
         assert!(result.inserted.is_some());
         let node = result.inserted.unwrap();
         assert_eq!(node.get_state(&dp), &(7, 7, 7));
@@ -352,7 +352,7 @@ mod tests {
         // Different key.
         let state = (6, 8, 8);
         let cost = 8;
-        let result = registry.insert_with_if_not_dominated(&dp, state, cost, constructor);
+        let result = registry.insert_with_if_not_dominated(&mut dp, state, cost, constructor);
         assert!(result.inserted.is_some());
         let node = result.inserted.unwrap();
         assert_eq!(node.get_state(&dp), &(6, 8, 8));
@@ -362,7 +362,7 @@ mod tests {
         // Incomparable due to the state.
         let state = (7, 6, 6);
         let cost = 8;
-        let result = registry.insert_with_if_not_dominated(&dp, state, cost, constructor);
+        let result = registry.insert_with_if_not_dominated(&mut dp, state, cost, constructor);
         assert!(result.inserted.is_some());
         let node = result.inserted.unwrap();
         assert_eq!(node.get_state(&dp), &(7, 6, 6));
@@ -372,7 +372,7 @@ mod tests {
         // Incomparable due to the cost.
         let state = (7, 7, 8);
         let cost = 6;
-        let result = registry.insert_with_if_not_dominated(&dp, state, cost, constructor);
+        let result = registry.insert_with_if_not_dominated(&mut dp, state, cost, constructor);
         assert!(result.inserted.is_some());
         let node = result.inserted.unwrap();
         assert_eq!(node.get_state(&dp), &(7, 7, 8));
@@ -382,21 +382,21 @@ mod tests {
         // Dominated by the first node due to the cost.
         let state = (7, 7, 7);
         let cost = 8;
-        let result = registry.insert_with_if_not_dominated(&dp, state, cost, constructor);
+        let result = registry.insert_with_if_not_dominated(&mut dp, state, cost, constructor);
         assert!(result.inserted.is_none());
         assert!(result.dominated.is_empty());
 
         // Dominated by the first node due to the state.
         let state = (7, 8, 7);
         let cost = 7;
-        let result = registry.insert_with_if_not_dominated(&dp, state, cost, constructor);
+        let result = registry.insert_with_if_not_dominated(&mut dp, state, cost, constructor);
         assert!(result.inserted.is_none());
         assert!(result.dominated.is_empty());
 
         // Replaces two nodes.
         let state = (7, 7, 7);
         let cost = 6;
-        let result = registry.insert_with_if_not_dominated(&dp, state, cost, constructor);
+        let result = registry.insert_with_if_not_dominated(&mut dp, state, cost, constructor);
         assert!(result.inserted.is_some());
         let node = result.inserted.unwrap();
         assert_eq!(node.get_state(&dp), &(7, 7, 7));

@@ -1,6 +1,6 @@
 use super::SearchNode;
 use super::id_tree::IdTree;
-use crate::dp::{Dp, OptimizationMode};
+use crate::dp::{DpMut, OptimizationMode};
 use std::cell::Cell;
 use std::cmp::Ordering;
 use std::marker::PhantomData;
@@ -18,7 +18,7 @@ pub struct CostNode<D, S, C, L> {
 
 impl<D, S, C, L> CostNode<D, S, C, L>
 where
-    D: Dp<State = S, CostType = C>,
+    D: DpMut<State = S, CostType = C>,
     C: Neg<Output = C>,
     L: Default + Copy,
 {
@@ -73,7 +73,7 @@ where
 
 impl<D, S, C, L> SearchNode for CostNode<D, S, C, L>
 where
-    D: Dp<State = S, CostType = C, Label = L>,
+    D: DpMut<State = S, CostType = C, Label = L>,
     C: Copy + Neg<Output = C>,
     L: Copy,
 {
