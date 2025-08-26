@@ -248,6 +248,8 @@ where
                     self.solution.is_optimal = true;
                 }
 
+                self.dp.notify_primal_bound(solution_cost);
+
                 if !self.parameters.quiet {
                     println!(
                         "New primal bound: {solution_cost}, expanded: {expanded}, generated: {generated}, elapsed time: {time}s.",

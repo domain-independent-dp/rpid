@@ -265,6 +265,8 @@ where
                     solution.cost = Some(solution_cost);
                     solution.transitions = transitions;
 
+                    dp.notify_primal_bound(solution_cost);
+
                     if !quiet {
                         println!(
                             "New primal bound: {solution_cost}, expanded: {expanded}, generated: {generated}, elapsed time: {time}s.",

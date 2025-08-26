@@ -369,6 +369,9 @@ pub trait DpMut {
             OptimizationMode::Maximization => new_cost > old_cost,
         }
     }
+
+    /// Get information of a new primal bound.
+    fn notify_primal_bound(&mut self, _primal_bound: Self::CostType) {}
 }
 
 impl<T: Dp> DpMut for T {
@@ -619,5 +622,11 @@ mod tests {
     fn test_get_global_dual_bound_mut() {
         let dp = MockDpMut;
         assert_eq!(dp.get_global_dual_bound(), None);
+    }
+
+    #[test]
+    fn test_notify_primal_bound_mut() {
+        let mut dp = MockDpMut;
+        dp.notify_primal_bound(42);
     }
 }
