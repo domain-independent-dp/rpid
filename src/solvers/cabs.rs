@@ -1,7 +1,7 @@
 use super::search_algorithms::CabsParameters;
 use crate::solvers::search_algorithms::{self, Cabs, CostNode, DualBoundNode, SearchNode};
 use crate::solvers::{Search, SearchParameters};
-use crate::{Bound, Dominance, Dp};
+use crate::{BoundMut, Dominance, DpMut};
 use num_traits::Signed;
 use std::fmt::Display;
 use std::hash::Hash;
@@ -108,22 +108,22 @@ pub fn create_cabs<D, S, C, L, K>(
     cabs_parameters: CabsParameters,
 ) -> impl Search<CostType = C, Label = L>
 where
-    D: Dp<State = S, CostType = C, Label = L>
+    D: DpMut<State = S, CostType = C, Label = L>
         + Dominance<State = S, Key = K>
-        + Bound<State = S, CostType = C>,
+        + BoundMut<State = S, CostType = C>,
     C: Ord + Copy + Signed + Display,
     L: Default + Copy,
     K: Hash + Eq,
 {
-    let root_node_constructor = |dp: &D, bound| {
+    let root_node_constructor = |dp: &mut D, bound| {
         DualBoundNode::create_root(dp, dp.get_target(), dp.get_identity_weight(), bound)
     };
     let node_constructor =
-        |dp: &_, state, cost, transition, parent: &DualBoundNode<_, _, _, _>, primal_bound| {
+        |dp: &mut D, state, cost, transition, parent: &DualBoundNode<_, _, _, _>, primal_bound| {
             parent.create_child(dp, state, cost, transition, primal_bound, None)
         };
-    let solution_checker = |dp: &_, node: &DualBoundNode<_, _, _, _>| node.check_solution(dp);
-    let beam_search_closure = move |dp: &_, root_node, parameters: &_| {
+    let solution_checker = |dp: &mut _, node: &DualBoundNode<_, _, _, _>| node.check_solution(dp);
+    let beam_search_closure = move |dp: &mut _, root_node, parameters: &_| {
         search_algorithms::beam_search(
             dp,
             root_node,
@@ -233,23 +233,24 @@ pub fn create_blind_cabs<D, S, C, L, K>(
     cabs_parameters: CabsParameters,
 ) -> impl Search<CostType = C, Label = L>
 where
-    D: Dp<State = S, CostType = C, Label = L> + Dominance<State = S, Key = K>,
+    D: DpMut<State = S, CostType = C, Label = L> + Dominance<State = S, Key = K>,
     C: Ord + Copy + Signed + Display,
     L: Default + Copy,
     K: Hash + Eq,
 {
-    let root_node_constructor = |dp: &D, _| {
+    let root_node_constructor = |dp: &mut D, _| {
         Some(CostNode::create_root(
             dp,
             dp.get_target(),
             dp.get_identity_weight(),
         ))
     };
-    let node_constructor = |dp: &_, state, cost, transition, parent: &CostNode<_, _, _, _>, _| {
-        Some(parent.create_child(dp, state, cost, transition))
-    };
-    let solution_checker = |dp: &_, node: &CostNode<_, _, _, _>| node.check_solution(dp);
-    let beam_search_closure = move |dp: &_, root_node, parameters: &_| {
+    let node_constructor =
+        |dp: &mut _, state, cost, transition, parent: &CostNode<_, _, _, _>, _| {
+            Some(parent.create_child(dp, state, cost, transition))
+        };
+    let solution_checker = |dp: &mut _, node: &CostNode<_, _, _, _>| node.check_solution(dp);
+    let beam_search_closure = move |dp: &mut _, root_node, parameters: &_| {
         search_algorithms::beam_search(
             dp,
             root_node,
@@ -271,6 +272,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dp::{Bound, Dp};
     use std::cell::Cell;
     use std::cmp::Ordering;
 

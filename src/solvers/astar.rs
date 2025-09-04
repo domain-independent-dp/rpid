@@ -1,6 +1,6 @@
 use crate::solvers::search_algorithms::{BestFirstSearch, DualBoundNode, SearchNode};
 use crate::solvers::{Search, SearchParameters};
-use crate::{Bound, Dominance, Dp};
+use crate::{BoundMut, Dominance, DpMut};
 use num_traits::Signed;
 use std::fmt::Display;
 use std::hash::Hash;
@@ -105,17 +105,17 @@ pub fn create_astar<D, S, C, L, K>(
     mut parameters: SearchParameters<C>,
 ) -> impl Search<CostType = C, Label = L>
 where
-    D: Dp<State = S, CostType = C, Label = L>
+    D: DpMut<State = S, CostType = C, Label = L>
         + Dominance<State = S, Key = K>
-        + Bound<State = S, CostType = C>,
+        + BoundMut<State = S, CostType = C>,
     C: Ord + Copy + Signed + Display,
     L: Default + Copy,
     K: Hash + Eq,
 {
-    let root_node_constructor = |dp: &D, bound| {
+    let root_node_constructor = |dp: &mut D, bound| {
         DualBoundNode::create_root(dp, dp.get_target(), dp.get_identity_weight(), bound)
     };
-    let node_constructor = |dp: &_,
+    let node_constructor = |dp: &mut _,
                             state,
                             cost,
                             transition,
@@ -124,7 +124,7 @@ where
                             other: Option<&_>| {
         parent.create_child(dp, state, cost, transition, primal_bound, other)
     };
-    let solution_checker = |dp: &_, node: &DualBoundNode<_, _, _, _>| node.check_solution(dp);
+    let solution_checker = |dp: &mut _, node: &DualBoundNode<_, _, _, _>| node.check_solution(dp);
     parameters.update_bounds(&dp);
 
     BestFirstSearch::new(
@@ -139,6 +139,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dp::{Bound, Dp};
     use std::cell::Cell;
     use std::cmp::Ordering;
 

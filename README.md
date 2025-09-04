@@ -2,7 +2,7 @@
 
 [![Actions Status](https://img.shields.io/github/actions/workflow/status/domain-independent-dp/rpid/test.yaml?branch=main&logo=github&style=flat-square)](https://github.com/domain-independent-dp/rpid/actions)
 [![crates.io](https://img.shields.io/crates/v/rpid)](https://crates.io/crates/rpid)
-[![minimum rustc 1.76](https://img.shields.io/badge/rustc-1.76+-blue.svg)](https://rust-lang.github.io/rfcs/2495-min-rust-version.html)
+[![minimum rustc 1.85](https://img.shields.io/badge/rustc-1.76+-blue.svg)](https://rust-lang.github.io/rfcs/2495-min-rust-version.html)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -87,9 +87,7 @@ impl Bound for Tsp {
 }
 
 fn main() {
-    let tsp = Tsp {
-        c: vec![vec![0, 1, 2], vec![1, 0, 3], vec![2, 3, 0]],
-    };
+    let tsp = Tsp { c: vec![vec![0, 1, 2], vec![1, 0, 3], vec![2, 3, 0]] };
     let mut solver =
         solvers::create_cabs(tsp, SearchParameters::default(), CabsParameters::default());
     let solution = solver.search();
@@ -104,5 +102,3 @@ fn main() {
 ## References
 
 Ryo Kuroiwa and J. Christopher Beck. RPID: Rust Programmable Interface for Domain-Independent Dynamic Programming. In *31st International Conference on Principles and Practice of Constraint Programming (CP 2025)*, volume 340 of Leibniz International Proceedings in Informatics (LIPIcs), pages 23:1-23:21. Schloss Dagstuhl - Leibniz-Zentrum für Informatik, 2025. [doi:10.4230/LIPIcs.CP.2025.23](https://doi.org/10.4230/LIPIcs.CP.2025.23)
-
-

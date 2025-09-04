@@ -11,11 +11,11 @@ use std::ops::{Add, SubAssign};
 ///
 /// # Examples
 ///
-/// let string = "1 2 3 \n 4 5 6 \n 7 8 9";
+/// ```
+/// use rpid::algorithms;
 ///
-/// let mut lines = string.split_whitespace();
-/// let matrix = io::read_matrix::<i32>(&mut lines, 3, 3).unwrap();
-/// let transposed = io::transpose(&matrix);
+/// let matrix = vec![vec![1, 2, 3], vec![4, 5, 6], vec![7, 8, 9]];
+/// let transposed = algorithms::transpose(&matrix);
 /// assert_eq!(transposed, vec![vec![1, 4, 7], vec![2, 5, 8], vec![3, 6, 9]]);
 /// ```
 pub fn transpose<T>(matrix: &[Vec<T>]) -> Vec<Vec<T>>

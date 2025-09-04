@@ -1,3 +1,5 @@
+//! Functions to handle input and output.
+
 use crate::solvers::{Search, Solution};
 use itertools::Itertools;
 use std::error::Error;

@@ -1,6 +1,6 @@
 use crate::solvers::search_algorithms::{BestFirstSearch, CostNode, SearchNode};
 use crate::solvers::{Search, SearchParameters};
-use crate::{Dominance, Dp};
+use crate::{Dominance, DpMut};
 use num_traits::Signed;
 use std::fmt::Display;
 use std::hash::Hash;
@@ -96,12 +96,12 @@ pub fn create_dijkstra<D, S, C, L, K>(
     parameters: SearchParameters<C>,
 ) -> impl Search<CostType = C, Label = L>
 where
-    D: Dp<State = S, CostType = C, Label = L> + Dominance<State = S, Key = K>,
+    D: DpMut<State = S, CostType = C, Label = L> + Dominance<State = S, Key = K>,
     C: Ord + Copy + Signed + Display,
     L: Default + Copy,
     K: Hash + Eq,
 {
-    let root_node_constructor = |dp: &D, _| {
+    let root_node_constructor = |dp: &mut D, _| {
         Some(CostNode::create_root(
             dp,
             dp.get_target(),
@@ -109,10 +109,10 @@ where
         ))
     };
     let node_constructor =
-        |dp: &_, state, cost, transition, parent: &CostNode<_, _, _, _>, _, _: Option<&_>| {
+        |dp: &mut _, state, cost, transition, parent: &CostNode<_, _, _, _>, _, _: Option<&_>| {
             Some(parent.create_child(dp, state, cost, transition))
         };
-    let solution_checker = |dp: &_, node: &CostNode<_, _, _, _>| node.check_solution(dp);
+    let solution_checker = |dp: &mut _, node: &CostNode<_, _, _, _>| node.check_solution(dp);
 
     BestFirstSearch::new(
         dp,
@@ -127,6 +127,7 @@ where
 mod tests {
     use super::*;
     use crate::Solution;
+    use crate::dp::Dp;
     use std::cell::Cell;
     use std::cmp::Ordering;
 

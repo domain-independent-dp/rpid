@@ -1,8 +1,7 @@
 use super::SearchParameters;
 use super::search::Solution;
 use super::search_nodes::{SearchNode, StateRegistry};
-use crate::Dominance;
-use crate::dp::Dp;
+use crate::dp::{Dominance, DpMut};
 use crate::timer::Timer;
 use smallvec::SmallVec;
 use std::cmp::Reverse;
@@ -61,7 +60,7 @@ impl<N, K, D, S, C> Beam<N>
 where
     N: Ord + SearchNode<DpData = D, State = S, CostType = C>,
     K: Hash + Eq,
-    D: Dp<State = S, CostType = C> + Dominance<State = S, Key = K>,
+    D: DpMut<State = S, CostType = C> + Dominance<State = S, Key = K>,
     C: Ord + Copy,
 {
     /// Creates a new beam with the given beam width.
@@ -112,7 +111,7 @@ where
     /// Inserts the given node into the beam.
     pub fn insert(
         &mut self,
-        dp: &D,
+        dp: &mut D,
         node: N,
         registry: &mut StateRegistry<K, N>,
     ) -> BeamInsertionResult<N> {
@@ -195,20 +194,20 @@ where
 /// `solution_checker` is a function that checks whether the given node is a solution
 /// and returns the cost and transitions if it is.
 pub fn beam_search<D, S, C, L, K, N, F, G>(
-    dp: &D,
+    dp: &mut D,
     root_node: N,
     mut node_constructor: F,
     mut solution_checker: G,
     parameters: &BeamSearchParameters<C>,
 ) -> Solution<C, L>
 where
-    D: Dp<State = S, CostType = C, Label = L> + Dominance<State = S, Key = K>,
+    D: DpMut<State = S, CostType = C, Label = L> + Dominance<State = S, Key = K>,
     C: Ord + Copy + Display,
     L: Copy,
     K: Hash + Eq,
     N: Ord + SearchNode<DpData = D, State = S, CostType = C, Label = L>,
-    F: FnMut(&D, S, C, L, &N, Option<C>) -> Option<N>,
-    G: FnMut(&D, &N) -> Option<(C, Vec<L>)>,
+    F: FnMut(&mut D, S, C, L, &N, Option<C>) -> Option<N>,
+    G: FnMut(&mut D, &N) -> Option<(C, Vec<L>)>,
 {
     let timer = parameters
         .search_parameters
@@ -232,6 +231,7 @@ where
         .map(StateRegistry::with_capacity)
         .unwrap_or(StateRegistry::with_capacity(parameters.beam_width));
     current_beam.insert(dp, root_node, &mut registry);
+    let mut successors = Vec::new();
 
     let mut primal_bound = parameters.search_parameters.primal_bound;
     let mut is_pruned = false;
@@ -265,6 +265,8 @@ where
                     solution.cost = Some(solution_cost);
                     solution.transitions = transitions;
 
+                    dp.notify_primal_bound(solution_cost);
+
                     if !quiet {
                         println!(
                             "New primal bound: {solution_cost}, expanded: {expanded}, generated: {generated}, elapsed time: {time}s.",
@@ -281,53 +283,59 @@ where
 
             let state = node.get_state(dp);
             let cost = node.get_cost(dp);
+            dp.get_successors(state, &mut successors);
 
-            for (successor_state, weight, transition) in dp.get_successors(state) {
-                let successor_cost = dp.combine_cost_weights(cost, weight);
+            successors
+                .drain(..)
+                .for_each(|(successor_state, weight, transition)| {
+                    let successor_cost = dp.combine_cost_weights(cost, weight);
 
-                if let Some(successor_node) = node_constructor(
-                    dp,
-                    successor_state,
-                    successor_cost,
-                    transition,
-                    &node,
-                    primal_bound,
-                ) {
-                    let successor_bound = successor_node.get_bound(dp);
-                    let result = next_beam.insert(dp, successor_node, &mut registry);
+                    if let Some(successor_node) = node_constructor(
+                        dp,
+                        successor_state,
+                        successor_cost,
+                        transition,
+                        &node,
+                        primal_bound,
+                    ) {
+                        let successor_bound = successor_node.get_bound(dp);
+                        let result = next_beam.insert(dp, successor_node, &mut registry);
 
-                    if !is_pruned && (result.is_pruned || result.removed.is_some()) {
-                        is_pruned = true;
-                    }
-
-                    if let Some(bound) = successor_bound {
-                        if layer_dual_bound
-                            .is_none_or(|layer_bound| dp.is_better_cost(bound, layer_bound))
-                        {
-                            layer_dual_bound = Some(bound);
+                        if !is_pruned && (result.is_pruned || result.removed.is_some()) {
+                            is_pruned = true;
                         }
 
-                        if result.is_pruned
-                            && removed_dual_bound
+                        if let Some(bound) = successor_bound {
+                            if layer_dual_bound
+                                .is_none_or(|layer_bound| dp.is_better_cost(bound, layer_bound))
+                            {
+                                layer_dual_bound = Some(bound);
+                            }
+
+                            if result.is_pruned
+                                && removed_dual_bound.is_none_or(|removed_bound| {
+                                    dp.is_better_cost(bound, removed_bound)
+                                })
+                            {
+                                removed_dual_bound = Some(bound);
+                            }
+                        }
+
+                        if let Some(bound) =
+                            result.removed.and_then(|removed| removed.get_bound(dp))
+                        {
+                            if removed_dual_bound
                                 .is_none_or(|removed_bound| dp.is_better_cost(bound, removed_bound))
-                        {
-                            removed_dual_bound = Some(bound);
+                            {
+                                removed_dual_bound = Some(bound);
+                            }
+                        }
+
+                        if result.is_newly_registered {
+                            solution.generated += 1;
                         }
                     }
-
-                    if let Some(bound) = result.removed.and_then(|removed| removed.get_bound(dp)) {
-                        if removed_dual_bound
-                            .is_none_or(|removed_bound| dp.is_better_cost(bound, removed_bound))
-                        {
-                            removed_dual_bound = Some(bound);
-                        }
-                    }
-
-                    if result.is_newly_registered {
-                        solution.generated += 1;
-                    }
-                }
-            }
+                });
 
             solution.expanded += 1;
 
@@ -405,6 +413,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dp::Dp;
     use std::cell::Cell;
     use std::cmp::Ordering;
 
@@ -500,13 +509,13 @@ mod tests {
 
     #[test]
     fn test_beam() {
-        let dp = MockDp(2);
+        let mut dp = MockDp(2);
         let mut beam = Beam::new(2);
         assert!(beam.is_empty());
         let mut registry = StateRegistry::default();
 
         let node = MockNode(4, 6, Cell::new(false), vec![]);
-        let result = beam.insert(&dp, node, &mut registry);
+        let result = beam.insert(&mut dp, node, &mut registry);
         assert!(result.is_inserted);
         assert!(result.is_newly_registered);
         assert!(!result.is_pruned);
@@ -516,7 +525,7 @@ mod tests {
 
         // Dominated
         let node = MockNode(4, 8, Cell::new(false), vec![]);
-        let result = beam.insert(&dp, node, &mut registry);
+        let result = beam.insert(&mut dp, node, &mut registry);
         assert!(!result.is_inserted);
         assert!(!result.is_newly_registered);
         assert!(!result.is_pruned);
@@ -526,7 +535,7 @@ mod tests {
 
         // Incomparable
         let node = MockNode(2, 2, Cell::new(false), vec![]);
-        let result = beam.insert(&dp, node, &mut registry);
+        let result = beam.insert(&mut dp, node, &mut registry);
         assert!(result.is_inserted);
         assert!(result.is_newly_registered);
         assert!(!result.is_pruned);
@@ -536,7 +545,7 @@ mod tests {
 
         // Dominating
         let node = MockNode(4, 4, Cell::new(false), vec![]);
-        let result = beam.insert(&dp, node, &mut registry);
+        let result = beam.insert(&mut dp, node, &mut registry);
         assert!(result.is_inserted);
         assert!(!result.is_newly_registered);
         assert!(!result.is_pruned);
@@ -550,7 +559,7 @@ mod tests {
 
         // Pruned by size
         let node = MockNode(5, 5, Cell::new(false), vec![]);
-        let result = beam.insert(&dp, node, &mut registry);
+        let result = beam.insert(&mut dp, node, &mut registry);
         assert!(!result.is_inserted);
         assert!(!result.is_newly_registered);
         assert!(result.is_pruned);
@@ -560,7 +569,7 @@ mod tests {
 
         // Push out the worst node
         let node = MockNode(3, 3, Cell::new(false), vec![]);
-        let result = beam.insert(&dp, node, &mut registry);
+        let result = beam.insert(&mut dp, node, &mut registry);
         assert!(result.is_inserted);
         assert!(result.is_newly_registered);
         assert!(!result.is_pruned);
@@ -591,16 +600,16 @@ mod tests {
 
     #[test]
     fn test_beam_drain() {
-        let dp = MockDp(2);
+        let mut dp = MockDp(2);
         let mut beam = Beam::new(2);
         assert!(beam.is_empty());
         let mut registry = StateRegistry::default();
 
         let node = MockNode(4, 6, Cell::new(false), vec![]);
-        beam.insert(&dp, node, &mut registry);
+        beam.insert(&mut dp, node, &mut registry);
 
         let node = MockNode(2, 2, Cell::new(false), vec![]);
-        beam.insert(&dp, node, &mut registry);
+        beam.insert(&mut dp, node, &mut registry);
 
         assert!(!beam.is_empty());
 
@@ -619,22 +628,22 @@ mod tests {
 
     #[test]
     fn test_beam_search() {
-        let dp = MockDp(2);
+        let mut dp = MockDp(2);
         let root_node = MockNode(
-            dp.get_target(),
-            dp.get_identity_weight(),
+            Dp::get_target(&dp),
+            Dp::get_identity_weight(&dp),
             Cell::new(false),
             Vec::new(),
         );
-        let node_constructor = |_: &_, state, cost, transition, parent: &MockNode, _| {
+        let node_constructor = |_: &mut _, state, cost, transition, parent: &MockNode, _| {
             let mut transitions = parent.3.clone();
             transitions.push(transition);
             Some(MockNode(state, cost, Cell::new(false), transitions))
         };
-        let solution_checker = |dp: &MockDp, node: &MockNode| {
+        let solution_checker = |dp: &mut MockDp, node: &MockNode| {
             dp.get_base_cost(node.get_state(dp)).map(|cost| {
                 (
-                    dp.combine_cost_weights(node.get_cost(dp), cost),
+                    Dp::combine_cost_weights(dp, node.get_cost(dp), cost),
                     node.3.clone(),
                 )
             })
@@ -649,7 +658,7 @@ mod tests {
         };
 
         let solution = beam_search(
-            &dp,
+            &mut dp,
             root_node,
             &node_constructor,
             solution_checker,
@@ -664,22 +673,22 @@ mod tests {
 
     #[test]
     fn test_beam_search_infeasible() {
-        let dp = MockDp(2);
+        let mut dp = MockDp(2);
         let root_node = MockNode(
-            dp.get_target(),
-            dp.get_identity_weight(),
+            Dp::get_target(&dp),
+            Dp::get_identity_weight(&dp),
             Cell::new(false),
             Vec::new(),
         );
-        let node_constructor = |_: &_, state, cost, transition, parent: &MockNode, _| {
+        let node_constructor = |_: &mut _, state, cost, transition, parent: &MockNode, _| {
             let mut transitions = parent.3.clone();
             transitions.push(transition);
             Some(MockNode(state, cost, Cell::new(false), transitions))
         };
-        let solution_checker = |dp: &MockDp, node: &MockNode| {
+        let solution_checker = |dp: &mut MockDp, node: &MockNode| {
             dp.get_base_cost(node.get_state(dp)).map(|cost| {
                 (
-                    dp.combine_cost_weights(node.get_cost(dp), cost),
+                    Dp::combine_cost_weights(dp, node.get_cost(dp), cost),
                     node.3.clone(),
                 )
             })
@@ -695,7 +704,7 @@ mod tests {
         };
 
         let solution = beam_search(
-            &dp,
+            &mut dp,
             root_node,
             &node_constructor,
             solution_checker,

@@ -1,3 +1,5 @@
+//! Provides [Timer] to measure elapsed time with an optional time limit.
+
 use std::time::{Duration, Instant};
 
 /// Timer.
