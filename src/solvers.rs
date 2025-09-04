@@ -1,3 +1,5 @@
+//! Solvers for dynamic programming models.
+
 mod astar;
 mod cabs;
 mod dijkstra;

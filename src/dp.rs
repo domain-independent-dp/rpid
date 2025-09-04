@@ -297,17 +297,22 @@ pub trait Bound {
 
 /// Trait for dynamic programming problems.
 ///
-/// This trait is similar to the `Dp` trait, but it allows mutable access to the problem struct
-/// when generating successors and get the base cost.
-/// This is useful when the problem struct contains data that needs to be updated during the search.
-///
 /// This trait defines the methods that a dynamic programming problem must implement.
-/// Data necessary for the problem should be stored in the struct that implements this trait, e.g.,
-/// some caching.
+/// Data necessary for the problem should be stored in the struct that implements this trait.
 ///
 /// By default, the solution cost is computed by summing the cost weights of the transitions,
 /// and minimization is assumed.
 /// Override the methods to change this behavior.
+///
+/// This trait is similar to the `Dp` trait, but it allows mutable access to the problem struct
+/// when generating successors and get the base cost.
+/// This is useful when the problem struct contains data that needs to be updated during the search.
+/// For example, some caching on the user side may be used to speed up the computation of successors.
+///
+/// If you are unsure what this trait is for, you probably want to implement the `Dp` trait instead.
+///
+/// When a struct implements the [Dp] trait, [DpMut] is automatically implemented for it.
+/// A solving algorithm should be generic over [DpMut] to accept both [Dp] and [DpMut].
 pub trait DpMut {
     /// Type of the state.
     type State;
@@ -371,6 +376,14 @@ pub trait DpMut {
     }
 
     /// Notifies information of a new primal bound.
+    ///
+    /// By default, this method does nothing.
+    ///
+    /// An expected use case is to update some internal data structures that tracks the primal bound for pruning.
+    /// For example, a user may want to evaluate a dual bound function when `get_successors` is called.
+    /// Since `Bound::get_dual_bound` may be called when the state is generated,
+    /// the user may want to use a more expensive dual bound function only when it is expanded.
+    /// In this case, the user needs to store the primal bound in the struct and update it in this method.
     fn notify_primal_bound(&mut self, _primal_bound: Self::CostType) {}
 }
 
@@ -414,13 +427,18 @@ impl<T: Dp> DpMut for T {
 
 /// Trait for computing dual bounds depending on a state.
 ///
+/// A dual bound is a lower/upper bound on the cost of the optimal solution
+/// in a minimization/maximization problem.
+///
 /// This trait is similar to the `Bound` trait, but it allows mutable access to the problem struct
 /// when evaluating the dual bound function.
 /// This is useful when the problem struct contains data that needs to be updated during the search, e.g.,
 /// some caching.
 ///
-/// A dual bound is a lower/upper bound on the cost of the optimal solution
-/// in a minimization/maximization problem.
+/// If you are unsure what this trait is for, you probably want to implement the `Bound` trait instead.
+///
+/// When a struct implements the `Bound` trait, [BoundMut] is automatically implemented for it.
+/// A solving algorithm should be generic over [BoundMut] to accept both [Bound] and [BoundMut].
 pub trait BoundMut {
     /// Type of the state.
     type State;

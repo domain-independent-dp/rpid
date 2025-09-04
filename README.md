@@ -87,9 +87,7 @@ impl Bound for Tsp {
 }
 
 fn main() {
-    let tsp = Tsp {
-        c: vec![vec![0, 1, 2], vec![1, 0, 3], vec![2, 3, 0]],
-    };
+    let tsp = Tsp { c: vec![vec![0, 1, 2], vec![1, 0, 3], vec![2, 3, 0]] };
     let mut solver =
         solvers::create_cabs(tsp, SearchParameters::default(), CabsParameters::default());
     let solution = solver.search();
@@ -104,5 +102,3 @@ fn main() {
 ## References
 
 Ryo Kuroiwa and J. Christopher Beck. RPID: Rust Programmable Interface for Domain-Independent Dynamic Programming. In *31st International Conference on Principles and Practice of Constraint Programming (CP 2025)*, volume 340 of Leibniz International Proceedings in Informatics (LIPIcs), pages 23:1-23:21. Schloss Dagstuhl - Leibniz-Zentrum für Informatik, 2025. [doi:10.4230/LIPIcs.CP.2025.23](https://doi.org/10.4230/LIPIcs.CP.2025.23)
-
-
