@@ -159,7 +159,9 @@ where
             let root_node = (self.root_node_constructor)(&mut self.dp, self.primal_bound);
 
             if root_node.is_none() {
-                self.solution.is_infeasible = true;
+                self.solution.is_optimal = self.solution.cost.is_some();
+                self.solution.is_infeasible = self.solution.cost.is_none();
+                self.solution.best_bound = self.solution.cost;
                 self.is_terminated = true;
 
                 return (self.stop_timer_and_return_solution(), true);
@@ -209,6 +211,8 @@ where
                 self.primal_bound = Some(cost);
                 self.solution.cost = Some(cost);
                 self.solution.transitions = solution.transitions;
+
+                self.dp.notify_primal_bound(cost);
 
                 if solution.is_optimal {
                     self.solution.is_optimal = true;
