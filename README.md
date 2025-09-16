@@ -2,7 +2,7 @@
 
 [![Actions Status](https://img.shields.io/github/actions/workflow/status/domain-independent-dp/rpid/test.yaml?branch=main&logo=github&style=flat-square)](https://github.com/domain-independent-dp/rpid/actions)
 [![crates.io](https://img.shields.io/crates/v/rpid)](https://crates.io/crates/rpid)
-[![minimum rustc 1.85](https://img.shields.io/badge/rustc-1.76+-blue.svg)](https://rust-lang.github.io/rfcs/2495-min-rust-version.html)
+[![minimum rustc 1.85](https://img.shields.io/badge/rustc-1.85+-blue.svg)](https://rust-lang.github.io/rfcs/2495-min-rust-version.html)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
