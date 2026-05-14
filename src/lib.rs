@@ -109,6 +109,7 @@ mod dp;
 pub mod io;
 pub mod solvers;
 pub mod timer;
+pub mod knapsack_example;
 
 pub use dp::{Bound, BoundMut, Dominance, Dp, DpMut, OptimizationMode};
 pub use solvers::Solution;

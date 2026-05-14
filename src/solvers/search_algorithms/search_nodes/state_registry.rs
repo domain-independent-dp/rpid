@@ -61,7 +61,7 @@ where
 
     fn remove_dominated(
         list: &mut SmallVec<[Rc<N>; 1]>,
-        dp: &mut D,
+        dp: &D,
         state: &S,
         cost: C,
     ) -> Option<RemoveResult<N>> {
@@ -103,7 +103,7 @@ where
     }
 
     /// Inserts a node into the registry if it is not dominated by any other node.
-    pub fn insert_if_not_dominated(&mut self, dp: &mut D, mut node: N) -> InsertionResult<N> {
+    pub fn insert_if_not_dominated(&mut self, dp: &D, mut node: N) -> InsertionResult<N> {
         match self.map.entry(dp.get_key(node.get_state(dp))) {
             Entry::Occupied(entry) => {
                 // Update the key of the state by the already stored key to reduce memory usage.
@@ -258,7 +258,7 @@ mod tests {
 
         let state = (7, 7, 7);
         let cost = 7;
-        let node = CostNode::create_root(&dp, state, cost);
+        let node: CostNode<MockDp, (i32, i32, i32), i32, usize> = CostNode::create_root(&dp, state, cost);
         let result = registry.insert_if_not_dominated(&mut dp, node);
         assert!(result.inserted.is_some());
         let node = result.inserted.unwrap();
@@ -335,7 +335,7 @@ mod tests {
 
     #[test]
     fn test_insert_with_if_not_dominated() {
-        let mut registry = StateRegistry::default();
+        let mut registry: StateRegistry<i32, CostNode<MockDp, (i32, i32, i32), i32, usize>> = StateRegistry::default();
         let mut dp = MockDp;
         let constructor =
             |dp: &mut _, state, cost, _: Option<&_>| Some(CostNode::create_root(dp, state, cost));

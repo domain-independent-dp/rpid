@@ -1,26 +1,27 @@
-use super::SearchNode;
+use super::{SearchNode, Sequence};
 use super::id_tree::IdTree;
 use crate::dp::{DpMut, OptimizationMode};
 use std::cell::Cell;
 use std::cmp::Ordering;
 use std::marker::PhantomData;
-use std::ops::Neg;
+use std::ops::{Deref, Neg};
 use std::rc::Rc;
 
 /// Node ordered by the cost.
-pub struct CostNode<D, S, C, L> {
+pub struct CostNode<D, S, C, L, T = IdTree<L>, P = Rc<T>> {
     state: S,
     cost: C,
     closed: Cell<bool>,
-    transition_tree: Rc<IdTree<L>>,
-    _phantom: PhantomData<D>,
+    transition_tree: P,
+    _phantom: PhantomData<(D, L, T)>,
 }
 
-impl<D, S, C, L> CostNode<D, S, C, L>
+impl<D, S, C, L, T, P> CostNode<D, S, C, L, T, P>
 where
     D: DpMut<State = S, CostType = C>,
     C: Neg<Output = C>,
-    L: Default + Copy,
+    T: Default + Sequence<L, P>,
+    P: From<T> + Clone,
 {
     /// Creates a new root node given the state and the cost.
     pub fn create_root(dp: &D, state: S, cost: C) -> Self {
@@ -31,7 +32,7 @@ where
                 OptimizationMode::Maximization => cost,
             },
             closed: Cell::new(false),
-            transition_tree: Rc::new(IdTree::default()),
+            transition_tree: P::from(T::default()),
             _phantom: PhantomData,
         }
     }
@@ -45,7 +46,7 @@ where
                 OptimizationMode::Maximization => cost,
             },
             closed: Cell::new(false),
-            transition_tree: Rc::new(IdTree::create_child(
+            transition_tree: P::from(T::create_child(
                 self.transition_tree.clone(),
                 transition,
             )),
@@ -54,11 +55,11 @@ where
     }
 }
 
-impl<D, S, C, L> Clone for CostNode<D, S, C, L>
+impl<D, S, C, L, T, P> Clone for CostNode<D, S, C, L, T, P>
 where
     S: Clone,
     C: Clone,
-    L: Clone,
+    P: Clone,
 {
     fn clone(&self) -> Self {
         Self {
@@ -71,11 +72,12 @@ where
     }
 }
 
-impl<D, S, C, L> SearchNode for CostNode<D, S, C, L>
+impl<D, S, C, L, T, P> SearchNode for CostNode<D, S, C, L, T, P>
 where
     D: DpMut<State = S, CostType = C, Label = L>,
     C: Copy + Neg<Output = C>,
-    L: Copy,
+    T: Sequence<L, P>,
+    P: Deref<Target=T>,
 {
     type DpData = D;
     type State = S;

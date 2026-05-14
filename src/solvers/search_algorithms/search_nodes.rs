@@ -5,10 +5,10 @@ mod dual_bound_node;
 mod id_tree;
 mod state_registry;
 
-pub use crate::dp::DpMut;
+pub use crate::dp::{Dp, DpMut};
 pub use cost_node::CostNode;
 pub use dual_bound_node::DualBoundNode;
-pub use id_tree::IdTree;
+pub use id_tree::{IdTree, Sequence};
 pub use state_registry::{InsertionResult, StateRegistry};
 
 /// Trait for search nodes.
@@ -63,6 +63,43 @@ pub trait SearchNode: Sized {
     /// Returns whether the nodes are ordered by dual bound values.
     fn ordered_by_bound() -> bool {
         false
+    }
+}
+
+pub trait ImmutSearchNode: Sized + SearchNode {
+    /// Type of the DP data.
+    type DpData: Dp<State = <Self as ImmutSearchNode>::State, CostType = <Self as ImmutSearchNode>::CostType>;
+        /// Type of the state.
+    type State;
+    /// Type of the cost.
+    type CostType;
+    /// Type of the transition label.
+    type Label;
+
+    /// Returns the state of the node.
+    fn get_state_immut(&self, dp: &<Self as ImmutSearchNode>::DpData) -> &<Self as ImmutSearchNode>::State;
+
+    /// Returns the cost of the node.
+    fn get_cost_immut(&self, dp: &<Self as ImmutSearchNode>::DpData) -> <Self as ImmutSearchNode>::CostType;
+
+    /// Returns the transitions to reach the node.
+    fn get_transitions_immut(&self, dp: &<Self as ImmutSearchNode>::DpData) -> Vec<<Self as ImmutSearchNode>::Label>;
+
+    /// Checks if the node is a solution and returns the cost and transitions if it is.
+    fn check_solution_immut(&self, dp: &<Self as ImmutSearchNode>::DpData) -> Option<(<Self as ImmutSearchNode>::CostType, Vec<<Self as ImmutSearchNode>::Label>)> {
+        let state = self.get_state_immut(dp);
+        let cost = self.get_cost_immut(dp);
+
+        if let Some(solution_cost) = dp
+            .get_base_cost(state)
+            .map(|base_cost| Dp::combine_cost_weights(dp, cost, base_cost))
+        {
+            let transitions = self.get_transitions_immut(dp);
+
+            Some((solution_cost, transitions))
+        } else {
+            None
+        }
     }
 }
 

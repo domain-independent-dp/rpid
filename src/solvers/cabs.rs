@@ -1,9 +1,10 @@
 use super::search_algorithms::CabsParameters;
-use crate::solvers::search_algorithms::{self, Cabs, CostNode, DualBoundNode, SearchNode};
+use crate::solvers::search_algorithms::{self, Cabs, CostNode, DualBoundNode, SearchNode, ImmutSearchNode};
+use crate::solvers::parallel_search_algorithms::{self, DualBoundNodeMessage};
 use crate::solvers::{Search, SearchParameters};
-use crate::{BoundMut, Dominance, DpMut};
+use crate::{Bound, BoundMut, Dominance, Dp, DpMut};
 use num_traits::Signed;
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 use std::hash::Hash;
 
 /// Creates complete anytime beam search (CABS) solver.
@@ -118,12 +119,15 @@ where
     let root_node_constructor = |dp: &mut D, bound| {
         DualBoundNode::create_root(dp, dp.get_target(), dp.get_identity_weight(), bound)
     };
-    let node_constructor =
+    let node_constructor = {
         |dp: &mut D, state, cost, transition, parent: &DualBoundNode<_, _, _, _>, primal_bound| {
-            parent.create_child(dp, state, cost, transition, primal_bound, None)
-        };
-    let solution_checker = |dp: &mut _, node: &DualBoundNode<_, _, _, _>| node.check_solution(dp);
-    let beam_search_closure = move |dp: &mut _, root_node, parameters: &_| {
+            parent.create_child(dp, state, cost, transition, primal_bound, None)}
+    };
+    let solution_checker = {
+        |dp: &mut _, node: &DualBoundNode<_, _, _, _>| node.check_solution(dp)
+    };
+    let beam_search_closure = {
+        move |dp: &mut _, root_node, parameters: &_| {
         search_algorithms::beam_search(
             dp,
             root_node,
@@ -131,6 +135,7 @@ where
             solution_checker,
             parameters,
         )
+    }
     };
     parameters.update_bounds(&dp);
 
@@ -239,18 +244,18 @@ where
     K: Hash + Eq,
 {
     let root_node_constructor = |dp: &mut D, _| {
-        Some(CostNode::create_root(
-            dp,
-            dp.get_target(),
-            dp.get_identity_weight(),
-        ))
+        Some(CostNode::create_root(dp, dp.get_target(), dp.get_identity_weight()))
     };
-    let node_constructor =
+    let node_constructor = {
         |dp: &mut _, state, cost, transition, parent: &CostNode<_, _, _, _>, _| {
             Some(parent.create_child(dp, state, cost, transition))
-        };
-    let solution_checker = |dp: &mut _, node: &CostNode<_, _, _, _>| node.check_solution(dp);
-    let beam_search_closure = move |dp: &mut _, root_node, parameters: &_| {
+        }
+    };
+    let solution_checker = {
+        |dp: &mut _, node: &CostNode<_, _, _, _>| node.check_solution(dp)
+    };
+    let beam_search_closure = {
+        move |dp: &mut _, root_node, parameters: &_| {
         search_algorithms::beam_search(
             dp,
             root_node,
@@ -258,7 +263,161 @@ where
             solution_checker,
             parameters,
         )
+    }
     };
+
+    Cabs::new(
+        dp,
+        root_node_constructor,
+        beam_search_closure,
+        parameters,
+        cabs_parameters,
+    )
+}
+
+/// Creates parallel complete anytime beam search (CABS) solver.
+///
+/// Search nodes are ordered by the f-value, which is the combination of the cost and the dual bound.
+///
+/// The DP model must implement the `Dominance` and `DualBound` traits.
+/// The DP model cannot be mutable.
+///
+/// # Examples
+///
+/// ```
+/// use rpid::prelude::*;
+/// use rpid::solvers;
+/// use fixedbitset::FixedBitSet;
+///
+/// struct Tsp {
+///     c: Vec<Vec<i32>>,
+/// }
+///
+/// #[derive(Clone, Hash)]
+/// struct TspState {
+///     unvisited: FixedBitSet,
+///     current: usize,
+/// }
+///
+/// impl Dp for Tsp {
+///     type State = TspState;
+///     type CostType = i32;
+///     type Label = usize;
+///
+///     fn get_target(&self) -> Self::State {
+///         let mut unvisited = FixedBitSet::with_capacity(self.c.len());
+///         unvisited.insert_range(1..);
+///
+///         TspState {
+///             unvisited,
+///             current: 0,
+///        }
+///     }
+///
+///     fn get_successors(
+///         &self,
+///         state: &Self::State,
+///     ) -> impl IntoIterator<Item = (Self::State, Self::CostType, Self::Label)> {
+///         state.unvisited.ones().map(|next| {
+///             let mut unvisited = state.unvisited.clone();
+///             unvisited.remove(next);
+///
+///             let successor = TspState {
+///                 unvisited,
+///                 current: next,
+///             };
+///             let weight = self.c[state.current][next];
+///             
+///             (successor, weight, next)
+///         })
+///     }
+///
+///     fn get_base_cost(&self, state: &Self::State) -> Option<Self::CostType> {
+///         if state.unvisited.is_clear() {
+///             Some(self.c[state.current][0])
+///         } else {
+///             None
+///         }
+///     }
+/// }
+///
+/// impl Dominance for Tsp {
+///     type State = TspState;
+///     type Key = (FixedBitSet, usize);
+///
+///     fn get_key(&self, state: &Self::State) -> Self::Key {
+///         (state.unvisited.clone(), state.current)
+///     }
+/// }
+///
+/// impl Bound for Tsp {
+///     type State = TspState;
+///     type CostType = i32;
+///
+///     fn get_dual_bound(&self, state: &Self::State) -> Option<Self::CostType> {
+///         Some(0)
+///     }
+/// }
+///
+/// let tsp = Tsp { c: vec![vec![0, 1, 2], vec![1, 0, 3], vec![2, 3, 0]] };
+/// let parameters = SearchParameters {
+///     quiet: true,
+///     ..Default::default()
+/// };
+/// let cabs_parameters = CabsParameters::default();
+/// let mut solver = solvers::create_parallel_cabs(tsp, parameters, cabs_parameters, 8, "hd1");
+/// let solution = solver.search();
+/// assert_eq!(solution.cost, Some(6));
+/// assert_eq!(solution.transitions, vec![1, 2]);
+/// assert!(solution.is_optimal);
+/// assert!(!solution.is_infeasible);
+/// assert_eq!(solution.best_bound, Some(6));
+/// ```
+pub fn create_parallel_cabs<D, S, C, L, K>(
+    dp: D,
+    mut parameters: SearchParameters<C>,
+    cabs_parameters: CabsParameters,
+    threads: usize,
+    parallelization_type: &str,
+) -> impl Search<CostType = C, Label = L>
+where
+    D: Dp<State = S, CostType = C, Label = L>
+        + Dominance<State = S, Key = K>
+        + Bound<State = S, CostType = C>
+        + Send + Sync,
+    S: Hash + Send + Sync + Clone,
+    C: Ord + Copy + Signed + Display + Send + Sync + Debug,
+    L: Default + Copy + Send + Sync,
+    K: Hash + Eq,
+{
+    let root_node_constructor = |dp: &mut D, bound| {
+        DualBoundNode::create_root(dp, dp.get_target(), dp.get_identity_weight(), bound)
+    };
+    let node_constructor = {
+        |dp: &D, state, cost, transition, parent: &DualBoundNode<_, _, _, _, _, _>, primal_bound| {
+            let node_message = parent.create_child_immut(dp, state, cost, transition, primal_bound, None)
+            .map(|child_node| DualBoundNodeMessage::<D, S, C, L>::from(child_node));
+            node_message
+        }
+    };
+    let solution_checker = {
+        |dp: &_, node: &DualBoundNode<_, _, _, _, _, _>| node.check_solution_immut(dp)
+    };
+    let beam_search_closure = {
+        move |dp: &mut _, root_node, parameters: &_| {
+        let root_node_message = DualBoundNodeMessage::<D, S, C, L>::from(root_node);
+        let (solution, _) = parallel_search_algorithms::hd_beam_search1(
+            dp,
+            root_node_message,
+            node_constructor,
+            solution_checker,
+            parameters,
+            threads,
+        ).unwrap();
+        solution
+    }
+    };
+    parameters.update_bounds(&dp);
 
     Cabs::new(
         dp,
@@ -446,6 +605,47 @@ mod tests {
         };
         let cabs_parameters = CabsParameters::default();
         let mut search = create_blind_cabs(dp, parameters, cabs_parameters);
+
+        let solution = search.search();
+        assert_eq!(solution.cost, None);
+        assert_eq!(solution.transitions, vec![]);
+        assert_eq!(solution.best_bound, None);
+        assert!(!solution.is_optimal);
+        assert!(solution.is_infeasible);
+        assert!(!solution.is_time_limit_reached);
+        assert!(!solution.is_expansion_limit_reached);
+    }
+
+    #[test]
+    fn test_parallel_cabs() {
+        let dp = MockDp(2);
+        let parameters = SearchParameters {
+            quiet: true,
+            ..Default::default()
+        };
+        let cabs_parameters = CabsParameters::default();
+        let mut search = create_parallel_cabs(dp, parameters, cabs_parameters, 1, "hd1");
+
+        let solution = search.search();
+        assert_eq!(solution.cost, Some(2));
+        assert_eq!(solution.transitions, vec![1, 1]);
+        assert_eq!(solution.best_bound, Some(2));
+        assert!(solution.is_optimal);
+        assert!(!solution.is_infeasible);
+        assert!(!solution.is_time_limit_reached);
+        assert!(!solution.is_expansion_limit_reached);
+    }
+
+    #[test]
+    fn test_parallel_cabs_infeasible() {
+        let dp = MockDp(2);
+        let parameters = SearchParameters {
+            primal_bound: Some(2),
+            quiet: true,
+            ..Default::default()
+        };
+        let cabs_parameters = CabsParameters::default();
+        let mut search = create_parallel_cabs(dp, parameters, cabs_parameters, 8, "hd1");
 
         let solution = search.search();
         assert_eq!(solution.cost, None);
