@@ -1,19 +1,15 @@
-use crate::dp::{Dominance, Dp};
-use crate::timer::Timer;
 use super::super::search_algorithms::{
-    Beam, BeamSearchParameters, 
-    SearchNode, Solution, StateRegistry
+    Beam, BeamSearchParameters, SearchNode, Solution, StateRegistry,
 };
-use super::data_structure::SearchNodeMessage;
 use super::hd_search_statistics::{HdSearchResult, HdSearchStatistics};
+use crate::dp::{Dominance, DpMut};
+use crate::timer::Timer;
 use bus::{Bus, BusReader};
-use crossbeam_channel::{bounded, unbounded, Receiver, Sender};
 use std::error::Error;
-use std::fmt::{Debug, Display};
+use std::fmt::Display;
 use std::hash::Hash;
+use std::sync::mpsc::{Receiver, Sender, SyncSender, channel, sync_channel};
 use std::{cmp, iter, mem, thread};
-// use std::sync::{Arc, Mutex};
-
 
 /// Performs hash distributed beam search 1 (HDBS1).
 ///
@@ -38,35 +34,37 @@ use std::{cmp, iter, mem, thread};
 /// # Panics
 ///
 /// If it fails to create a thread pool or reserve memory for the state registry.
-/// 
-pub fn hd_beam_search1<D, S, C, L, K, N, M, F, G>(
+///
+pub fn hd_beam_search1<D, S, C, L, K, N, M, F, G, A>(
     dp: &D,
     root_node: M,
     node_constructor: F,
     solution_checker: G,
+    thread_assigner: A,
     parameters: &BeamSearchParameters<C>,
     threads: usize,
 ) -> Result<HdSearchResult<C, L>, Box<dyn Error>>
 where
-    D: Dp<State = S, CostType = C, Label = L> + Dominance<State = S, Key = K> + Sync,
-    C: Ord + Copy + Display + Send + Sync + Debug,
+    D: DpMut<State = S, CostType = C, Label = L> + Dominance<State = S, Key = K> + Clone + Send,
+    C: Ord + Copy + Display + Send + Sync,
     L: Copy + Send + Sync,
     K: Hash + Eq,
-    N: Ord + SearchNode<DpData = D, State = S, CostType = C, Label = L> + Clone + From<M>,
-    M: SearchNodeMessage + Clone,
-    F: Fn(&D, S, C, L, &N, Option<C>) -> Option<M> + Send + Sync,
-    G: Fn(&D, &N) -> Option<(C, Vec<L>)> + Send + Sync,
+    N: Ord + SearchNode<DpData = D, State = S, CostType = C, Label = L> + From<M> + Send,
+    M: Clone + Send,
+    F: Fn(&mut D, S, C, L, &N, Option<C>) -> Option<M> + Clone + Send,
+    G: Fn(&mut D, &N) -> Option<(C, Vec<L>)> + Clone + Send,
+    A: Fn(&D, &M, usize) -> usize + Clone + Send,
 {
     let threads = cmp::min(threads, parameters.beam_width);
     let base_beam_size = parameters.beam_width / threads;
     let modulo = parameters.beam_width % threads;
 
-    let (node_txs, node_rxs): (Vec<_>, Vec<_>) = (0..threads).map(|_| unbounded()).unzip();
-    let (solution_tx, solution_rx) = bounded(1);
-    let (optimality_tx, optimality_rx) = bounded(1);
-    let (statistics_tx, statistics_rx) = bounded(threads);
+    let (node_txs, node_rxs): (Vec<_>, Vec<_>) = (0..threads).map(|_| channel()).unzip();
+    let (solution_tx, solution_rx) = sync_channel(1);
+    let (optimality_tx, optimality_rx) = sync_channel(1);
+    let (statistics_tx, statistics_rx) = sync_channel(threads);
 
-    let (local_layer_tx, local_layer_rx) = bounded(threads - 1);
+    let (local_layer_tx, local_layer_rx) = sync_channel(threads - 1);
     let mut global_layer_tx = Bus::new(1);
     let follower_channels = (0..threads - 1)
         .map(|_| LayerChannel::Follower(local_layer_tx.clone(), global_layer_tx.add_rx()))
@@ -74,7 +72,7 @@ where
     let leader_channel = LayerChannel::Leader(local_layer_rx, global_layer_tx);
     let layer_channels = iter::once(leader_channel).chain(follower_channels);
 
-    let parameters = (*parameters).clone();
+    let parameters = *parameters;
     thread::scope(|s| {
         for (id, (node_rx, layer_channel)) in node_rxs.into_iter().zip(layer_channels).enumerate() {
             let node_txs = node_txs.clone();
@@ -92,18 +90,21 @@ where
                 statistics_tx,
             };
 
+            let mut dp = dp.clone();
             let mut parameters = parameters;
             parameters.beam_width = base_beam_size + if id < modulo { 1 } else { 0 };
-            let node_constructor = &node_constructor;
-            let solution_checker = &solution_checker;
+            let node_constructor = node_constructor.clone();
+            let solution_checker = solution_checker.clone();
+            let thread_assigner = thread_assigner.clone();
             let root_node = root_node.clone();
 
             s.spawn(move || {
                 single_sync_beam_search(
-                    dp,
+                    &mut dp,
                     root_node,
                     node_constructor,
                     solution_checker,
+                    thread_assigner,
                     &parameters,
                     channels,
                 )
@@ -181,37 +182,39 @@ struct Statistics {
 enum LayerChannel<T> {
     Leader(Receiver<LocalLayerMessage<T>>, Bus<GlobalLayerMessage<T>>),
     Follower(
-        Sender<LocalLayerMessage<T>>,
+        SyncSender<LocalLayerMessage<T>>,
         BusReader<GlobalLayerMessage<T>>,
     ),
 }
 
-struct Channels<C, M, V> {
+struct Channels<C, M, L> {
     id: usize,
     node_txs: Vec<Sender<Option<M>>>,
     node_rx: Receiver<Option<M>>,
     layer_channel: LayerChannel<C>,
-    solution_tx: Sender<Option<(C, Vec<V>)>>,
-    optimality_tx: Sender<OptimalityMessage<C>>,
-    statistics_tx: Sender<Statistics>,
+    solution_tx: SyncSender<Option<(C, Vec<L>)>>,
+    optimality_tx: SyncSender<OptimalityMessage<C>>,
+    statistics_tx: SyncSender<Statistics>,
 }
 
-fn single_sync_beam_search<D, S, C, L, K, N, M, F, G>(
-    dp: &D,
+fn single_sync_beam_search<D, S, C, L, K, N, M, F, G, A>(
+    dp: &mut D,
     root_node: M,
-    node_constructor: F,
-    solution_checker: G,
+    mut node_constructor: F,
+    mut solution_checker: G,
+    thread_assigner: A,
     parameters: &BeamSearchParameters<C>,
     mut channels: Channels<C, M, L>,
 ) where
-    D: Dp<State = S, CostType = C, Label = L> + Dominance<State = S, Key = K>,
-    C: Ord + Copy + Display + Sync + Debug,
+    D: DpMut<State = S, CostType = C, Label = L> + Dominance<State = S, Key = K>,
+    C: Ord + Copy + Display + Sync,
     L: Copy,
     K: Hash + Eq,
     N: Ord + SearchNode<DpData = D, State = S, CostType = C, Label = L> + From<M>,
-    M: SearchNodeMessage + Clone,
-    F: Fn(&D, S, C, L, &N, Option<C>) -> Option<M>,
-    G: Fn(&D, &N) -> Option<(C, Vec<L>)>,
+    M: Send,
+    F: FnMut(&mut D, S, C, L, &N, Option<C>) -> Option<M>,
+    G: FnMut(&mut D, &N) -> Option<(C, Vec<L>)>,
+    A: Fn(&D, &M, usize) -> usize,
 {
     let id = channels.id;
     let timer = if let LayerChannel::Leader(..) = &channels.layer_channel {
@@ -242,9 +245,8 @@ fn single_sync_beam_search<D, S, C, L, K, N, M, F, G>(
     let mut kept = 0;
     let mut generated = 0;
 
-    if id == root_node.assign_thread(threads) {
-        let node = N::from(root_node);
-        current_beam.insert(dp, node, &mut registry);
+    if id == thread_assigner(dp, &root_node, threads) {
+        current_beam.insert(dp, N::from(root_node), &mut registry);
         generated += 1;
 
         if !parameters.keep_all_layers {
@@ -252,8 +254,10 @@ fn single_sync_beam_search<D, S, C, L, K, N, M, F, G>(
         }
     }
 
+    let mut successors = Vec::new();
+
     let mut expanded = 0;
-    let mut pruned = false;
+    let mut is_pruned = false;
     let mut best_dual_bound = None;
     let mut removed_dual_bound = None;
     let mut layer_index = 0;
@@ -270,23 +274,29 @@ fn single_sync_beam_search<D, S, C, L, K, N, M, F, G>(
 
             let mut iter = current_beam.drain();
 
-            while !sent_all || received_all < threads - 1{
+            while !sent_all || received_all < threads - 1 {
                 if !expanded_all {
                     // Expands a node.
                     if let Some(node) = iter.next() {
-                        if let (Some(dual_bound), Some(primal_bound)) = (node.get_bound(dp), primal_bound) {
+                        if let (Some(dual_bound), Some(primal_bound)) =
+                            (node.get_bound(dp), primal_bound)
+                        {
                             if !dp.is_better_cost(dual_bound, primal_bound) {
                                 continue;
                             }
                         }
 
                         if let Some((solution_cost, transitions)) = solution_checker(dp, &node) {
-                            if primal_bound.is_none_or(|bound| dp.is_better_cost(solution_cost, bound)) {
+                            if primal_bound
+                                .is_none_or(|bound| dp.is_better_cost(solution_cost, bound))
+                            {
                                 primal_bound = Some(solution_cost);
                                 incumbent = Some((solution_cost, transitions));
 
+                                dp.notify_primal_bound(solution_cost);
+
                                 // Optimal solution, ignore remaining open nodes.
-                                if Some(solution_cost) == best_dual_bound{
+                                if Some(solution_cost) == best_dual_bound {
                                     expanded_all = true;
                                 }
                             }
@@ -296,9 +306,10 @@ fn single_sync_beam_search<D, S, C, L, K, N, M, F, G>(
 
                         let state = node.get_state(dp);
                         let cost = node.get_cost(dp);
+                        dp.get_successors(state, &mut successors);
 
-                        dp.get_successors(state)
-                            .into_iter()
+                        successors
+                            .drain(..)
                             .for_each(|(successor_state, weight, transition)| {
                                 let successor_cost = dp.combine_cost_weights(cost, weight);
 
@@ -310,22 +321,25 @@ fn single_sync_beam_search<D, S, C, L, K, N, M, F, G>(
                                     &node,
                                     primal_bound,
                                 ) {
-                                    let sent_to = successor_node.assign_thread(threads);
+                                    let sent_to = thread_assigner(dp, &successor_node, threads);
 
                                     if sent_to == id {
                                         kept += 1;
                                         let successor_node = N::from(successor_node);
                                         let successor_bound = successor_node.get_bound(dp);
-                                        let result = next_beam.insert(dp, successor_node, &mut registry);
+                                        let result =
+                                            next_beam.insert(dp, successor_node, &mut registry);
 
-                                        if !pruned && (result.is_pruned || result.removed.is_some()) {
-                                            pruned = true;
+                                        if !is_pruned
+                                            && (result.is_pruned || result.removed.is_some())
+                                        {
+                                            is_pruned = true;
                                         }
 
                                         if let Some(bound) = successor_bound {
-                                            if layer_dual_bound
-                                                .is_none_or(|layer_bound| dp.is_better_cost(bound, layer_bound))
-                                            {
+                                            if layer_dual_bound.is_none_or(|layer_bound| {
+                                                dp.is_better_cost(bound, layer_bound)
+                                            }) {
                                                 layer_dual_bound = Some(bound);
                                             }
 
@@ -341,9 +355,9 @@ fn single_sync_beam_search<D, S, C, L, K, N, M, F, G>(
                                         if let Some(bound) =
                                             result.removed.and_then(|removed| removed.get_bound(dp))
                                         {
-                                            if removed_dual_bound
-                                                .is_none_or(|removed_bound| dp.is_better_cost(bound, removed_bound))
-                                            {
+                                            if removed_dual_bound.is_none_or(|removed_bound| {
+                                                dp.is_better_cost(bound, removed_bound)
+                                            }) {
                                                 removed_dual_bound = Some(bound);
                                             }
                                         }
@@ -352,7 +366,9 @@ fn single_sync_beam_search<D, S, C, L, K, N, M, F, G>(
                                             generated += 1;
                                         }
                                     } else {
-                                        channels.node_txs[sent_to].send(Some(successor_node)).unwrap();
+                                        channels.node_txs[sent_to]
+                                            .send(Some(successor_node))
+                                            .unwrap();
                                         sent += 1;
                                     }
                                 }
@@ -382,8 +398,8 @@ fn single_sync_beam_search<D, S, C, L, K, N, M, F, G>(
                             let node_bound = node.get_bound(dp);
                             let result = next_beam.insert(dp, node, &mut registry);
 
-                            if !pruned && (result.is_pruned || result.removed.is_some()) {
-                                pruned = true;
+                            if !is_pruned && (result.is_pruned || result.removed.is_some()) {
+                                is_pruned = true;
                             }
 
                             if let Some(bound) = node_bound {
@@ -405,9 +421,9 @@ fn single_sync_beam_search<D, S, C, L, K, N, M, F, G>(
                             if let Some(bound) =
                                 result.removed.and_then(|removed| removed.get_bound(dp))
                             {
-                                if removed_dual_bound
-                                    .is_none_or(|removed_bound| dp.is_better_cost(bound, removed_bound))
-                                {
+                                if removed_dual_bound.is_none_or(|removed_bound| {
+                                    dp.is_better_cost(bound, removed_bound)
+                                }) {
                                     removed_dual_bound = Some(bound);
                                 }
                             }
@@ -429,7 +445,7 @@ fn single_sync_beam_search<D, S, C, L, K, N, M, F, G>(
                 // Sends the information to the leader.
                 let information = LocalLayerMessage {
                     id,
-                    pruned,
+                    pruned: is_pruned,
                     is_empty: next_beam.is_empty(),
                     bound: layer_dual_bound,
                     cost: incumbent.as_ref().map(|(cost, _)| *cost),
@@ -477,7 +493,7 @@ fn single_sync_beam_search<D, S, C, L, K, N, M, F, G>(
                 // Receives and aggregates the information from each follower.
                 for _ in 0..threads - 1 {
                     let information = rx.recv().unwrap();
-                    pruned |= information.pruned;
+                    is_pruned |= information.pruned;
                     is_empty &= information.is_empty;
 
                     if let Some(bound) = information.bound {
@@ -489,8 +505,9 @@ fn single_sync_beam_search<D, S, C, L, K, N, M, F, G>(
                     }
 
                     if let Some(other_cost) = information.cost {
-                        if cost.is_none_or(|incumbent_cost| dp.is_better_cost(other_cost, incumbent_cost))
-                            || (Some(other_cost) == cost && information.id < goal_id.unwrap())
+                        if cost.is_none_or(|incumbent_cost| {
+                            dp.is_better_cost(other_cost, incumbent_cost)
+                        }) || (Some(other_cost) == cost && information.id < goal_id.unwrap())
                         {
                             cost = Some(other_cost);
                             goal_id = Some(information.id);
@@ -499,8 +516,8 @@ fn single_sync_beam_search<D, S, C, L, K, N, M, F, G>(
                 }
 
                 if let Some(value) = layer_dual_bound {
-                    if cost
-                        .is_some_and(|incumbent_cost| !dp.is_better_cost(value, incumbent_cost)) {
+                    if cost.is_some_and(|incumbent_cost| !dp.is_better_cost(value, incumbent_cost))
+                    {
                         best_dual_bound = cost
                     } else if best_dual_bound
                         .is_none_or(|best_bound| dp.is_better_cost(best_bound, value))
@@ -520,7 +537,7 @@ fn single_sync_beam_search<D, S, C, L, K, N, M, F, G>(
                 }
 
                 if is_empty || time_out || goal_id.is_some() {
-                    let mut proved = !pruned && is_empty;
+                    let mut proved = !is_pruned && is_empty;
 
                     if let Some(goal_id) = goal_id {
                         if threads > 1 {
@@ -591,21 +608,18 @@ fn single_sync_beam_search<D, S, C, L, K, N, M, F, G>(
 
         layer_index += 1;
     }
-
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::solvers::search_algorithms::*;
-    use crate::dp::Dp;
+    use super::super::hash_distribution;
     use super::*;
-    // use crate::solvers::parallel_search_algorithms::hd_beam_search1;
+    use crate::dp::Dp;
+    use crate::solvers::search_algorithms::*;
     use std::cell::Cell;
     use std::cmp::Ordering;
-    use std::hash::{Hash, Hasher};
-    use rustc_hash::FxHasher;
 
-    #[derive(PartialEq, Eq)]
+    #[derive(PartialEq, Eq, Clone)]
     struct MockDp(i32);
 
     impl Dp for MockDp {
@@ -696,51 +710,30 @@ mod tests {
         }
     }
 
-    #[derive(Clone)]
-    struct MockNodeMessage(i32, i32, Vec<usize>);
-
-    impl SearchNodeMessage for MockNodeMessage {
-        fn assign_thread(&self, threads: usize) -> usize {
-            const SEED: u32 = 0x5583c24d;
-
-            let mut hasher = FxHasher::default();
-            hasher.write_u32(SEED);
-            self.0.hash(&mut hasher);
-            hasher.finish() as usize % threads
-        }
-    }
-
-    impl From<MockNodeMessage> for MockNode {
-        fn from(value: MockNodeMessage) -> Self {
-            MockNode(
-                value.0,
-                value.1,
-                Cell::new(false),
-                value.2,
-            )
-        }
-    }
-
     #[test]
     fn test_hd_beam_search1() {
         let dp = MockDp(2);
-        let root_node = MockNodeMessage(
+        let root_node = MockNode(
             Dp::get_target(&dp),
             Dp::get_identity_weight(&dp),
+            Cell::new(false),
             Vec::new(),
         );
-        let node_constructor = |_: &_, state, cost, transition, parent: &MockNode, _| {
+        let node_constructor = |_: &mut _, state, cost, transition, parent: &MockNode, _| {
             let mut transitions = parent.3.clone();
             transitions.push(transition);
-            Some(MockNodeMessage(state, cost, transitions))
+            Some(MockNode(state, cost, Cell::new(false), transitions))
         };
-        let solution_checker = |dp: &MockDp, node: &MockNode| {
+        let solution_checker = |dp: &mut MockDp, node: &MockNode| {
             dp.get_base_cost(node.get_state(dp)).map(|cost| {
                 (
                     Dp::combine_cost_weights(dp, node.get_cost(dp), cost),
                     node.3.clone(),
                 )
             })
+        };
+        let thread_assigner = |dp: &MockDp, message: &MockNode, threads: usize| {
+            hash_distribution::fx_hash_assign_thread(&dp.get_key(message.get_state(dp)), threads, 0)
         };
         let parameters = BeamSearchParameters {
             beam_width: 8,
@@ -754,8 +747,9 @@ mod tests {
         let result = hd_beam_search1(
             &dp,
             root_node,
-            &node_constructor,
+            node_constructor,
             solution_checker,
+            thread_assigner,
             &parameters,
             8,
         );
@@ -776,23 +770,27 @@ mod tests {
     #[test]
     fn test_hd_beam_search1_infeasible() {
         let dp = MockDp(2);
-        let root_node = MockNodeMessage(
+        let root_node = MockNode(
             Dp::get_target(&dp),
             Dp::get_identity_weight(&dp),
+            Cell::new(false),
             Vec::new(),
         );
-        let node_constructor = |_: &_, state, cost, transition, parent: &MockNode, _| {
+        let node_constructor = |_: &mut _, state, cost, transition, parent: &MockNode, _| {
             let mut transitions = parent.3.clone();
             transitions.push(transition);
-            Some(MockNodeMessage(state, cost, transitions))
+            Some(MockNode(state, cost, Cell::new(false), transitions))
         };
-        let solution_checker = |dp: &MockDp, node: &MockNode| {
+        let solution_checker = |dp: &mut MockDp, node: &MockNode| {
             dp.get_base_cost(node.get_state(dp)).map(|cost| {
                 (
                     Dp::combine_cost_weights(dp, node.get_cost(dp), cost),
                     node.3.clone(),
                 )
             })
+        };
+        let thread_assigner = |dp: &MockDp, message: &MockNode, threads: usize| {
+            hash_distribution::fx_hash_assign_thread(&dp.get_key(message.get_state(dp)), threads, 0)
         };
         let parameters = BeamSearchParameters {
             beam_width: 8,
@@ -807,8 +805,9 @@ mod tests {
         let result = hd_beam_search1(
             &dp,
             root_node,
-            &node_constructor,
+            node_constructor,
             solution_checker,
+            thread_assigner,
             &parameters,
             8,
         );

@@ -1,7 +1,8 @@
-pub mod data_structure;
+pub mod arc_id_tree;
+pub mod hash_distribution;
 pub mod hd_beam_search1;
 pub mod hd_beam_search2;
 pub mod hd_search_statistics;
 
-pub use data_structure::{ArcIdTree, DualBoundNodeMessage, SearchNodeMessage};
+pub use arc_id_tree::ArcIdTree;
 pub use hd_beam_search1::hd_beam_search1;

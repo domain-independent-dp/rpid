@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use crate::solvers::search_algorithms::Sequence;
+use std::sync::Arc;
 
 /// Tree data structure to store a sequence of ids.
 #[derive(Clone, Debug, Default)]

@@ -1,11 +1,12 @@
 use super::search_algorithms::CabsParameters;
-use crate::solvers::search_algorithms::{self, Cabs, CostNode, DualBoundNode, SearchNode, ImmutSearchNode};
-use crate::solvers::parallel_search_algorithms::{self, DualBoundNodeMessage};
+use crate::solvers::parallel_search_algorithms::{self, ArcIdTree, hash_distribution};
+use crate::solvers::search_algorithms::{self, Cabs, CostNode, DualBoundNode, SearchNode};
 use crate::solvers::{Search, SearchParameters};
-use crate::{Bound, BoundMut, Dominance, Dp, DpMut};
+use crate::{BoundMut, Dominance, DpMut};
 use num_traits::Signed;
-use std::fmt::{Debug, Display};
+use std::fmt::Display;
 use std::hash::Hash;
+use std::sync::Arc;
 
 /// Creates complete anytime beam search (CABS) solver.
 ///
@@ -121,21 +122,21 @@ where
     };
     let node_constructor = {
         |dp: &mut D, state, cost, transition, parent: &DualBoundNode<_, _, _, _>, primal_bound| {
-            parent.create_child(dp, state, cost, transition, primal_bound, None)}
+            parent.create_child(dp, state, cost, transition, primal_bound, None)
+        }
     };
-    let solution_checker = {
-        |dp: &mut _, node: &DualBoundNode<_, _, _, _>| node.check_solution(dp)
-    };
+    let solution_checker =
+        { |dp: &mut _, node: &DualBoundNode<_, _, _, _>| node.check_solution(dp) };
     let beam_search_closure = {
         move |dp: &mut _, root_node, parameters: &_| {
-        search_algorithms::beam_search(
-            dp,
-            root_node,
-            node_constructor,
-            solution_checker,
-            parameters,
-        )
-    }
+            search_algorithms::beam_search(
+                dp,
+                root_node,
+                node_constructor,
+                solution_checker,
+                parameters,
+            )
+        }
     };
     parameters.update_bounds(&dp);
 
@@ -244,26 +245,28 @@ where
     K: Hash + Eq,
 {
     let root_node_constructor = |dp: &mut D, _| {
-        Some(CostNode::create_root(dp, dp.get_target(), dp.get_identity_weight()))
+        Some(CostNode::create_root(
+            dp,
+            dp.get_target(),
+            dp.get_identity_weight(),
+        ))
     };
     let node_constructor = {
         |dp: &mut _, state, cost, transition, parent: &CostNode<_, _, _, _>, _| {
             Some(parent.create_child(dp, state, cost, transition))
         }
     };
-    let solution_checker = {
-        |dp: &mut _, node: &CostNode<_, _, _, _>| node.check_solution(dp)
-    };
+    let solution_checker = { |dp: &mut _, node: &CostNode<_, _, _, _>| node.check_solution(dp) };
     let beam_search_closure = {
         move |dp: &mut _, root_node, parameters: &_| {
-        search_algorithms::beam_search(
-            dp,
-            root_node,
-            node_constructor,
-            solution_checker,
-            parameters,
-        )
-    }
+            search_algorithms::beam_search(
+                dp,
+                root_node,
+                node_constructor,
+                solution_checker,
+                parameters,
+            )
+        }
     };
 
     Cabs::new(
@@ -273,6 +276,14 @@ where
         parameters,
         cabs_parameters,
     )
+}
+
+/// Parallelization types for parallel CABS.
+pub enum ParallelizationType {
+    /// Parallelize the beam search using the HD1 parallelization strategy.
+    Hd1,
+    /// Parallelize the beam search using the HD2 parallelization strategy.
+    Hd2,
 }
 
 /// Creates parallel complete anytime beam search (CABS) solver.
@@ -289,6 +300,7 @@ where
 /// use rpid::solvers;
 /// use fixedbitset::FixedBitSet;
 ///
+/// #[derive(Clone)]
 /// struct Tsp {
 ///     c: Vec<Vec<i32>>,
 /// }
@@ -365,7 +377,8 @@ where
 ///     ..Default::default()
 /// };
 /// let cabs_parameters = CabsParameters::default();
-/// let mut solver = solvers::create_parallel_cabs(tsp, parameters, cabs_parameters, 8, "hd1");
+/// let parallelization_type = ParallelizationType::Hd1;
+/// let mut solver = solvers::create_parallel_cabs(tsp, parameters, cabs_parameters, 8, parallelization_type);
 /// let solution = solver.search();
 /// assert_eq!(solution.cost, Some(6));
 /// assert_eq!(solution.transitions, vec![1, 2]);
@@ -378,44 +391,58 @@ pub fn create_parallel_cabs<D, S, C, L, K>(
     mut parameters: SearchParameters<C>,
     cabs_parameters: CabsParameters,
     threads: usize,
-    parallelization_type: &str,
+    parallelization_type: ParallelizationType,
 ) -> impl Search<CostType = C, Label = L>
 where
-    D: Dp<State = S, CostType = C, Label = L>
+    D: DpMut<State = S, CostType = C, Label = L>
         + Dominance<State = S, Key = K>
-        + Bound<State = S, CostType = C>
-        + Send + Sync,
-    S: Hash + Send + Sync + Clone,
-    C: Ord + Copy + Signed + Display + Send + Sync + Debug,
+        + BoundMut<State = S, CostType = C>
+        + Clone
+        + Send,
+    S: Clone + Send,
+    C: Ord + Copy + Signed + Display + Send + Sync,
     L: Default + Copy + Send + Sync,
     K: Hash + Eq,
 {
+    const THREAD_ASSIGNER_SEED: u32 = 0x5583c24d;
+
     let root_node_constructor = |dp: &mut D, bound| {
         DualBoundNode::create_root(dp, dp.get_target(), dp.get_identity_weight(), bound)
     };
     let node_constructor = {
-        |dp: &D, state, cost, transition, parent: &DualBoundNode<_, _, _, _, _, _>, primal_bound| {
-            let node_message = parent.create_child_immut(dp, state, cost, transition, primal_bound, None)
-            .map(|child_node| DualBoundNodeMessage::<D, S, C, L>::from(child_node));
-            node_message
+        |dp: &mut D,
+         state,
+         cost,
+         transition,
+         parent: &DualBoundNode<_, _, _, _, ArcIdTree<L>, Arc<_>>,
+         primal_bound| {
+            parent.create_child(dp, state, cost, transition, primal_bound, None)
         }
     };
-    let solution_checker = {
-        |dp: &_, node: &DualBoundNode<_, _, _, _, _, _>| node.check_solution_immut(dp)
-    };
+    let solution_checker =
+        { |dp: &mut D, node: &DualBoundNode<_, _, _, _, _, _>| node.check_solution(dp) };
+    let thread_assigner =
+        move |dp: &D, message: &DualBoundNode<_, _, _, _, _, _>, threads: usize| {
+            hash_distribution::fx_hash_assign_thread(
+                &dp.get_key(message.get_state(dp)),
+                threads,
+                THREAD_ASSIGNER_SEED,
+            )
+        };
     let beam_search_closure = {
         move |dp: &mut _, root_node, parameters: &_| {
-        let root_node_message = DualBoundNodeMessage::<D, S, C, L>::from(root_node);
-        let (solution, _) = parallel_search_algorithms::hd_beam_search1(
-            dp,
-            root_node_message,
-            node_constructor,
-            solution_checker,
-            parameters,
-            threads,
-        ).unwrap();
-        solution
-    }
+            let (solution, _) = parallel_search_algorithms::hd_beam_search1(
+                dp,
+                root_node,
+                node_constructor,
+                solution_checker,
+                thread_assigner,
+                parameters,
+                threads,
+            )
+            .unwrap();
+            solution
+        }
     };
     parameters.update_bounds(&dp);
 
@@ -435,7 +462,7 @@ mod tests {
     use std::cell::Cell;
     use std::cmp::Ordering;
 
-    #[derive(PartialEq, Eq)]
+    #[derive(PartialEq, Eq, Clone)]
     struct MockDp(i32);
 
     impl Dp for MockDp {
@@ -474,63 +501,6 @@ mod tests {
 
         fn get_dual_bound(&self, _: &Self::State) -> Option<Self::CostType> {
             Some(0)
-        }
-    }
-
-    struct MockNode(i32, i32, Cell<bool>, Vec<usize>);
-
-    impl SearchNode for MockNode {
-        type DpData = MockDp;
-        type State = i32;
-        type CostType = i32;
-        type Label = usize;
-
-        fn get_state(&self, _: &Self::DpData) -> &Self::State {
-            &self.0
-        }
-
-        fn get_state_mut(&mut self, _: &Self::DpData) -> &mut Self::State {
-            &mut self.0
-        }
-
-        fn get_cost(&self, _: &Self::DpData) -> Self::CostType {
-            self.1
-        }
-
-        fn get_bound(&self, _: &Self::DpData) -> Option<Self::CostType> {
-            None
-        }
-
-        fn close(&self) {
-            self.2.set(true)
-        }
-
-        fn is_closed(&self) -> bool {
-            self.2.get()
-        }
-
-        fn get_transitions(&self, _: &Self::DpData) -> Vec<Self::Label> {
-            self.3.clone()
-        }
-    }
-
-    impl PartialEq for MockNode {
-        fn eq(&self, other: &Self) -> bool {
-            self.1 == other.1
-        }
-    }
-
-    impl Eq for MockNode {}
-
-    impl Ord for MockNode {
-        fn cmp(&self, other: &Self) -> Ordering {
-            other.1.cmp(&self.1)
-        }
-    }
-
-    impl PartialOrd for MockNode {
-        fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-            Some(self.cmp(other))
         }
     }
 
@@ -624,7 +594,8 @@ mod tests {
             ..Default::default()
         };
         let cabs_parameters = CabsParameters::default();
-        let mut search = create_parallel_cabs(dp, parameters, cabs_parameters, 1, "hd1");
+        let mut search =
+            create_parallel_cabs(dp, parameters, cabs_parameters, 1, ParallelizationType::Hd1);
 
         let solution = search.search();
         assert_eq!(solution.cost, Some(2));
@@ -645,7 +616,8 @@ mod tests {
             ..Default::default()
         };
         let cabs_parameters = CabsParameters::default();
-        let mut search = create_parallel_cabs(dp, parameters, cabs_parameters, 8, "hd1");
+        let mut search =
+            create_parallel_cabs(dp, parameters, cabs_parameters, 8, ParallelizationType::Hd1);
 
         let solution = search.search();
         assert_eq!(solution.cost, None);
