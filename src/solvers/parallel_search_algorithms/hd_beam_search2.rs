@@ -10,20 +10,18 @@ use std::hash::Hash;
 use std::sync::mpsc::{Receiver, Sender, SyncSender, channel, sync_channel};
 use std::{cmp, mem, thread};
 
-/// Performs hash distributed beam search 1 (HDBS1).
-///
-/// This function uses forward search based on the shortest path problem.
-/// It only works with problems where the cost expressions are in the form of `cost + w`, `cost * w`, `max(cost, w)`, or `min(cost, w)`
-/// where `cost` is `IntegerExpression::Cost`or `ContinuousExpression::Cost` and `w` is a numeric expression independent of `cost`.
+/// Performs hash distributed beam search 2 (HDBS2).
 ///
 /// It keeps the best `beam_size` nodes at each layer.
+/// 
+/// Type parameter `N` is a node type that implements `SearchNode`, and type parameter `M` is a node message type that is sendable
+/// and can be transformed into a `N` node.
+/// 
+/// `node_constructor` is a function that constructs a new search node from the given state,
+/// cost, transition, parent node, and primal bound.
 ///
-/// Type parameter `N` is a node type that implements `BfsNode`.
-/// Type parameter `E` is a type of a function that evaluates a transition and generate a successor node.
-/// The last argument of the function is the primal bound of the solution cost.
-/// Type parameter `B` is a type of a function that combines the g-value (the cost to a state) and the base cost.
-/// It should be the same function as the cost expression, e.g., `cost + base_cost` for `cost + w`.
-///
+/// `solution_checker` is a function that checks whether the given node is a solution
+/// and returns the cost and transitions if it is.
 ///
 /// # References
 ///
