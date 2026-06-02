@@ -19,3 +19,5 @@ bus = "2.4"
 [dev-dependencies]
 fixedbitset = "0.5"
 approx = "0.5"
+
+[workspace]

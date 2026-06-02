@@ -6,3 +6,4 @@ pub mod hd_search_statistics;
 
 pub use arc_id_tree::ArcIdTree;
 pub use hd_beam_search1::hd_beam_search1;
+pub use hd_beam_search2::hd_beam_search2;

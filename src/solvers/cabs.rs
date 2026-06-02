@@ -392,16 +392,17 @@ pub fn create_parallel_cabs<D, S, C, L, K>(
     cabs_parameters: CabsParameters,
     threads: usize,
     parallelization_type: ParallelizationType,
-) -> impl Search<CostType = C, Label = L>
+) -> Box<dyn Search<CostType = C, Label = L>>
 where
     D: DpMut<State = S, CostType = C, Label = L>
         + Dominance<State = S, Key = K>
         + BoundMut<State = S, CostType = C>
         + Clone
-        + Send,
+        + Send
+        + 'static,
     S: Clone + Send,
-    C: Ord + Copy + Signed + Display + Send + Sync,
-    L: Default + Copy + Send + Sync,
+    C: Ord + Copy + Signed + Display + Send + Sync + 'static,
+    L: Default + Copy + Send + Sync + 'static,
     K: Hash + Eq,
 {
     const THREAD_ASSIGNER_SEED: u32 = 0x5583c24d;
@@ -429,38 +430,80 @@ where
                 THREAD_ASSIGNER_SEED,
             )
         };
-    let beam_search_closure = {
-        move |dp: &mut _, root_node, parameters: &_| {
-            let (solution, _) = parallel_search_algorithms::hd_beam_search1(
-                dp,
-                root_node,
-                node_constructor,
-                solution_checker,
-                thread_assigner,
-                parameters,
-                threads,
-            )
-            .unwrap();
-            solution
-        }
-    };
-    parameters.update_bounds(&dp);
 
-    Cabs::new(
-        dp,
-        root_node_constructor,
-        beam_search_closure,
-        parameters,
-        cabs_parameters,
-    )
+    let print_statistics = !parameters.quiet;
+
+    match parallelization_type {
+        ParallelizationType::Hd1 => {
+            let beam_search_closure = move |dp: &mut _, root_node, parameters: &_| {
+                let (solution, statistics) = parallel_search_algorithms::hd_beam_search1(
+                    dp,
+                    root_node,
+                    node_constructor,
+                    solution_checker,
+                    thread_assigner,
+                    parameters,
+                    threads,
+                )
+                .unwrap();
+
+                if print_statistics {
+                    println!(
+                        "Searched with beam size: {}, threads: {}, kept: {}, sent: {}",
+                        parameters.beam_width,
+                        threads,
+                        statistics.kept.iter().sum::<usize>(),
+                        statistics.sent.iter().sum::<usize>(),
+                    );
+                }
+
+                solution
+            };
+
+            parameters.update_bounds(&dp);
+
+            Box::new(Cabs::new(
+                dp,
+                root_node_constructor,
+                beam_search_closure,
+                parameters,
+                cabs_parameters,
+            ))
+        }
+        ParallelizationType::Hd2 => {
+            let beam_search_closure = move |dp: &mut _, root_node, parameters: &_| {
+                let (solution, _) = parallel_search_algorithms::hd_beam_search1(
+                    dp,
+                    root_node,
+                    node_constructor,
+                    solution_checker,
+                    thread_assigner,
+                    parameters,
+                    threads,
+                )
+                .unwrap();
+                solution
+            };
+
+            parameters.update_bounds(&dp);
+
+            Box::new(Cabs::new(
+                dp,
+                root_node_constructor,
+                beam_search_closure,
+                parameters,
+                cabs_parameters,
+            ))
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::dp::{Bound, Dp};
-    use std::cell::Cell;
-    use std::cmp::Ordering;
+    // use std::cell::Cell;
+    // use std::cmp::Ordering;
 
     #[derive(PartialEq, Eq, Clone)]
     struct MockDp(i32);
@@ -587,7 +630,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parallel_cabs() {
+    fn test_hd1_parallel_cabs() {
         let dp = MockDp(2);
         let parameters = SearchParameters {
             quiet: true,
@@ -595,7 +638,7 @@ mod tests {
         };
         let cabs_parameters = CabsParameters::default();
         let mut search =
-            create_parallel_cabs(dp, parameters, cabs_parameters, 1, ParallelizationType::Hd1);
+            create_parallel_cabs(dp, parameters, cabs_parameters, 8, ParallelizationType::Hd1);
 
         let solution = search.search();
         assert_eq!(solution.cost, Some(2));
@@ -608,7 +651,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parallel_cabs_infeasible() {
+    fn test_hd1_parallel_cabs_infeasible() {
         let dp = MockDp(2);
         let parameters = SearchParameters {
             primal_bound: Some(2),
@@ -618,6 +661,49 @@ mod tests {
         let cabs_parameters = CabsParameters::default();
         let mut search =
             create_parallel_cabs(dp, parameters, cabs_parameters, 8, ParallelizationType::Hd1);
+
+        let solution = search.search();
+        assert_eq!(solution.cost, None);
+        assert_eq!(solution.transitions, vec![]);
+        assert_eq!(solution.best_bound, None);
+        assert!(!solution.is_optimal);
+        assert!(solution.is_infeasible);
+        assert!(!solution.is_time_limit_reached);
+        assert!(!solution.is_expansion_limit_reached);
+    }
+
+    #[test]
+    fn test_hd2_parallel_cabs() {
+        let dp = MockDp(2);
+        let parameters = SearchParameters {
+            quiet: true,
+            ..Default::default()
+        };
+        let cabs_parameters = CabsParameters::default();
+        let mut search =
+            create_parallel_cabs(dp, parameters, cabs_parameters, 8, ParallelizationType::Hd2);
+
+        let solution = search.search();
+        assert_eq!(solution.cost, Some(2));
+        assert_eq!(solution.transitions, vec![1, 1]);
+        assert_eq!(solution.best_bound, Some(2));
+        assert!(solution.is_optimal);
+        assert!(!solution.is_infeasible);
+        assert!(!solution.is_time_limit_reached);
+        assert!(!solution.is_expansion_limit_reached);
+    }
+
+    #[test]
+    fn test_hd2_parallel_cabs_infeasible() {
+        let dp = MockDp(2);
+        let parameters = SearchParameters {
+            primal_bound: Some(2),
+            quiet: true,
+            ..Default::default()
+        };
+        let cabs_parameters = CabsParameters::default();
+        let mut search =
+            create_parallel_cabs(dp, parameters, cabs_parameters, 8, ParallelizationType::Hd2);
 
         let solution = search.search();
         assert_eq!(solution.cost, None);
