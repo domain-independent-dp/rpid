@@ -5,7 +5,7 @@ mod dual_bound_node;
 mod id_tree;
 mod state_registry;
 
-pub use crate::dp::{Dp, DpMut};
+pub use crate::dp::DpMut;
 pub use cost_node::CostNode;
 pub use dual_bound_node::DualBoundNode;
 pub use id_tree::{IdTree, Sequence};

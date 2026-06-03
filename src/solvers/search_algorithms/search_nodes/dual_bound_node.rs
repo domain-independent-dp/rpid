@@ -1,5 +1,5 @@
-use super::id_tree::IdTree;
-use super::{SearchNode, Sequence};
+use super::id_tree::{IdTree, Sequence};
+use super::SearchNode;
 use crate::dp::{BoundMut, DpMut, OptimizationMode};
 use std::cell::Cell;
 use std::cmp::Ordering;

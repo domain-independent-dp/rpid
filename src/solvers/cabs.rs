@@ -378,6 +378,16 @@ pub enum ParallelizationType {
 /// };
 /// let cabs_parameters = CabsParameters::default();
 /// let parallelization_type = ParallelizationType::Hd1;
+/// let mut solver = solvers::create_parallel_cabs(tsp.clone(), parameters, cabs_parameters, 8, parallelization_type);
+/// let solution = solver.search();
+/// assert_eq!(solution.cost, Some(6));
+/// assert_eq!(solution.transitions, vec![1, 2]);
+/// assert!(solution.is_optimal);
+/// assert!(!solution.is_infeasible);
+/// assert_eq!(solution.best_bound, Some(6));
+/// 
+/// let cabs_parameters = CabsParameters::default();
+/// let parallelization_type = ParallelizationType::Hd2;
 /// let mut solver = solvers::create_parallel_cabs(tsp, parameters, cabs_parameters, 8, parallelization_type);
 /// let solution = solver.search();
 /// assert_eq!(solution.cost, Some(6));
@@ -472,7 +482,7 @@ where
         }
         ParallelizationType::Hd2 => {
             let beam_search_closure = move |dp: &mut _, root_node, parameters: &_| {
-                let (solution, _) = parallel_search_algorithms::hd_beam_search1(
+                let (solution, _) = parallel_search_algorithms::hd_beam_search2(
                     dp,
                     root_node,
                     node_constructor,

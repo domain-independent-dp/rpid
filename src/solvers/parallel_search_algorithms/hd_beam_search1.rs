@@ -97,7 +97,7 @@ where
             let root_node = root_node.clone();
 
             s.spawn(move || {
-                single_sync_beam_search(
+                single_sync_beam_search1(
                     &mut dp,
                     root_node,
                     node_constructor,
@@ -195,7 +195,7 @@ struct Channels<C, M, L> {
     statistics_tx: SyncSender<Statistics>,
 }
 
-fn single_sync_beam_search<D, S, C, L, K, N, M, F, G, A>(
+fn single_sync_beam_search1<D, S, C, L, K, N, M, F, G, A>(
     dp: &mut D,
     root_node: M,
     mut node_constructor: F,
@@ -237,7 +237,6 @@ fn single_sync_beam_search<D, S, C, L, K, N, M, F, G, A>(
         .initial_registry_capacity
         .map(StateRegistry::with_capacity)
         .unwrap_or(StateRegistry::with_capacity(parameters.beam_width));
-    // let mut successors = Vec::new();
 
     let mut sent = 0;
     let mut kept = 0;
@@ -261,7 +260,6 @@ fn single_sync_beam_search<D, S, C, L, K, N, M, F, G, A>(
     let mut layer_index = 0;
 
     loop {
-        // : Option<(Rc<N, Global>, C, &ArcIdTree<L>)>
         let mut incumbent = None;
         let mut layer_dual_bound = removed_dual_bound;
 
