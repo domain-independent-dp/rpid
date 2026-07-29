@@ -100,17 +100,19 @@ use std::hash::Hash;
 /// assert!(!solution.is_infeasible);
 /// assert_eq!(solution.best_bound, Some(6));
 /// ```
-pub fn create_astar<D, S, C, L, K>(
+pub fn create_astar<'a, D, S, C, L, K>(
     dp: D,
     mut parameters: SearchParameters<C>,
-) -> impl Search<CostType = C, Label = L>
+) -> Box<dyn Search<CostType = C, Label = L> + 'a>
 where
     D: DpMut<State = S, CostType = C, Label = L>
         + Dominance<State = S, Key = K>
-        + BoundMut<State = S, CostType = C>,
-    C: Ord + Copy + Signed + Display,
-    L: Default + Copy,
-    K: Hash + Eq,
+        + BoundMut<State = S, CostType = C>
+        + 'a,
+    S: 'a,
+    C: Ord + Copy + Signed + Display + 'a,
+    L: Default + Copy + 'a,
+    K: Hash + Eq + 'a,
 {
     let root_node_constructor = |dp: &mut D, bound| {
         DualBoundNode::create_root(dp, dp.get_target(), dp.get_identity_weight(), bound)
@@ -127,13 +129,13 @@ where
     let solution_checker = |dp: &mut _, node: &DualBoundNode<_, _, _, _>| node.check_solution(dp);
     parameters.update_bounds(&dp);
 
-    BestFirstSearch::new(
+    Box::new(BestFirstSearch::new(
         dp,
         root_node_constructor,
         node_constructor,
         solution_checker,
         parameters,
-    )
+    ))
 }
 
 #[cfg(test)]

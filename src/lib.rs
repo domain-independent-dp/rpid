@@ -14,10 +14,12 @@
 //! use rpid::prelude::*;
 //! use rpid::solvers;
 //!
+//! #[derive(Clone)]
 //! struct Tsp {
 //!     c: Vec<Vec<i32>>,
 //! }
 //!
+//! #[derive(Clone, Hash)]
 //! struct TspState {
 //!     unvisited: FixedBitSet,
 //!     current: usize,
@@ -85,7 +87,7 @@
 //!
 //! let tsp = Tsp { c: vec![vec![0, 1, 2], vec![1, 0, 3], vec![2, 3, 0]] };
 //! let mut solver
-//!     = solvers::create_cabs(tsp, SearchParameters::default(), CabsParameters::default());
+//!     = solvers::create_cabs(tsp, SearchParameters::default(), CabsParameters::default(), 1, ParallelizationType::Hd1);
 //! let solution = solver.search();
 //! assert_eq!(solution.cost, Some(6));
 //! assert_eq!(solution.transitions, vec![1, 2]);

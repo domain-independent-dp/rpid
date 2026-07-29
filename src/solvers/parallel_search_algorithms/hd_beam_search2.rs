@@ -53,6 +53,9 @@ where
     A: Fn(&D, &M, usize) -> usize + Clone + Send,
 {
     let threads = cmp::min(threads, parameters.beam_width);
+    if !parameters.search_parameters.quiet {
+        println!("HD2 Beam Search with {threads} threads.");
+    }
     let base_beam_size = parameters.beam_width / threads;
     let modulo = parameters.beam_width % threads;
 
@@ -328,7 +331,6 @@ fn single_sync_beam_search2<D, S, C, L, K, N, M, F, G, A>(
             let mut received_all = 0;
 
             let mut iter = current_beam.drain();
-
             while !sent_all || received_all < threads - 1 {
                 if opened < threads - 1 {
                     // Receives the information of the previous layer.

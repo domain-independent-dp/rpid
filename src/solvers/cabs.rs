@@ -4,150 +4,10 @@ use crate::solvers::search_algorithms::{self, Cabs, CostNode, DualBoundNode, Sea
 use crate::solvers::{Search, SearchParameters};
 use crate::{BoundMut, Dominance, DpMut};
 use num_traits::Signed;
+use core::panic;
 use std::fmt::Display;
 use std::hash::Hash;
 use std::sync::Arc;
-
-/// Creates complete anytime beam search (CABS) solver.
-///
-/// Search nodes are ordered by the f-value, which is the combination of the cost and the dual bound.
-///
-/// The DP model must implement the `Dominance` and `DualBound` traits.
-///
-/// # Examples
-///
-/// ```
-/// use rpid::prelude::*;
-/// use rpid::solvers;
-/// use fixedbitset::FixedBitSet;
-///
-/// struct Tsp {
-///     c: Vec<Vec<i32>>,
-/// }
-///
-/// struct TspState {
-///     unvisited: FixedBitSet,
-///     current: usize,
-/// }
-///
-/// impl Dp for Tsp {
-///     type State = TspState;
-///     type CostType = i32;
-///     type Label = usize;
-///
-///     fn get_target(&self) -> Self::State {
-///         let mut unvisited = FixedBitSet::with_capacity(self.c.len());
-///         unvisited.insert_range(1..);
-///
-///         TspState {
-///             unvisited,
-///             current: 0,
-///        }
-///     }
-///
-///     fn get_successors(
-///         &self,
-///         state: &Self::State,
-///     ) -> impl IntoIterator<Item = (Self::State, Self::CostType, Self::Label)> {
-///         state.unvisited.ones().map(|next| {
-///             let mut unvisited = state.unvisited.clone();
-///             unvisited.remove(next);
-///
-///             let successor = TspState {
-///                 unvisited,
-///                 current: next,
-///             };
-///             let weight = self.c[state.current][next];
-///             
-///             (successor, weight, next)
-///         })
-///     }
-///
-///     fn get_base_cost(&self, state: &Self::State) -> Option<Self::CostType> {
-///         if state.unvisited.is_clear() {
-///             Some(self.c[state.current][0])
-///         } else {
-///             None
-///         }
-///     }
-/// }
-///
-/// impl Dominance for Tsp {
-///     type State = TspState;
-///     type Key = (FixedBitSet, usize);
-///
-///     fn get_key(&self, state: &Self::State) -> Self::Key {
-///         (state.unvisited.clone(), state.current)
-///     }
-/// }
-///
-/// impl Bound for Tsp {
-///     type State = TspState;
-///     type CostType = i32;
-///
-///     fn get_dual_bound(&self, state: &Self::State) -> Option<Self::CostType> {
-///         Some(0)
-///     }
-/// }
-///
-/// let tsp = Tsp { c: vec![vec![0, 1, 2], vec![1, 0, 3], vec![2, 3, 0]] };
-/// let parameters = SearchParameters {
-///     quiet: true,
-///     ..Default::default()
-/// };
-/// let cabs_parameters = CabsParameters::default();
-/// let mut solver = solvers::create_cabs(tsp, parameters, cabs_parameters);
-/// let solution = solver.search();
-/// assert_eq!(solution.cost, Some(6));
-/// assert_eq!(solution.transitions, vec![1, 2]);
-/// assert!(solution.is_optimal);
-/// assert!(!solution.is_infeasible);
-/// assert_eq!(solution.best_bound, Some(6));
-/// ```
-pub fn create_cabs<D, S, C, L, K>(
-    dp: D,
-    mut parameters: SearchParameters<C>,
-    cabs_parameters: CabsParameters,
-) -> impl Search<CostType = C, Label = L>
-where
-    D: DpMut<State = S, CostType = C, Label = L>
-        + Dominance<State = S, Key = K>
-        + BoundMut<State = S, CostType = C>,
-    C: Ord + Copy + Signed + Display,
-    L: Default + Copy,
-    K: Hash + Eq,
-{
-    let root_node_constructor = |dp: &mut D, bound| {
-        DualBoundNode::create_root(dp, dp.get_target(), dp.get_identity_weight(), bound)
-    };
-    let node_constructor = {
-        |dp: &mut D, state, cost, transition, parent: &DualBoundNode<_, _, _, _>, primal_bound| {
-            parent.create_child(dp, state, cost, transition, primal_bound, None)
-        }
-    };
-    let solution_checker =
-        { |dp: &mut _, node: &DualBoundNode<_, _, _, _>| node.check_solution(dp) };
-    let beam_search_closure = {
-        move |dp: &mut _, root_node, parameters: &_| {
-            search_algorithms::beam_search(
-                dp,
-                root_node,
-                node_constructor,
-                solution_checker,
-                parameters,
-            )
-        }
-    };
-    parameters.update_bounds(&dp);
-
-    Cabs::new(
-        dp,
-        root_node_constructor,
-        beam_search_closure,
-        parameters,
-        cabs_parameters,
-    )
-}
 
 /// Creates complete anytime beam search (CABS) solver without dual bound guidance.
 ///
@@ -286,13 +146,16 @@ pub enum ParallelizationType {
     Hd2,
 }
 
-/// Creates parallel complete anytime beam search (CABS) solver.
+/// Creates complete anytime beam search (CABS) solver.
 ///
 /// Search nodes are ordered by the f-value, which is the combination of the cost and the dual bound.
 ///
 /// The DP model must implement the `Dominance` and `DualBound` traits.
 /// The DP model cannot be mutable.
 ///
+/// # Panic
+/// When `threads` argument takes 0 value.
+/// 
 /// # Examples
 ///
 /// ```
@@ -378,7 +241,7 @@ pub enum ParallelizationType {
 /// };
 /// let cabs_parameters = CabsParameters::default();
 /// let parallelization_type = ParallelizationType::Hd1;
-/// let mut solver = solvers::create_parallel_cabs(tsp.clone(), parameters, cabs_parameters, 8, parallelization_type);
+/// let mut solver = solvers::create_cabs(tsp.clone(), parameters, cabs_parameters, 8, parallelization_type);
 /// let solution = solver.search();
 /// assert_eq!(solution.cost, Some(6));
 /// assert_eq!(solution.transitions, vec![1, 2]);
@@ -388,7 +251,17 @@ pub enum ParallelizationType {
 /// 
 /// let cabs_parameters = CabsParameters::default();
 /// let parallelization_type = ParallelizationType::Hd2;
-/// let mut solver = solvers::create_parallel_cabs(tsp, parameters, cabs_parameters, 8, parallelization_type);
+/// let mut solver = solvers::create_cabs(tsp.clone(), parameters, cabs_parameters, 8, parallelization_type);
+/// let solution = solver.search();
+/// assert_eq!(solution.cost, Some(6));
+/// assert_eq!(solution.transitions, vec![1, 2]);
+/// assert!(solution.is_optimal);
+/// assert!(!solution.is_infeasible);
+/// assert_eq!(solution.best_bound, Some(6));
+/// 
+/// let cabs_parameters = CabsParameters::default();
+/// let parallelization_type = ParallelizationType::Hd2;
+/// let mut solver = solvers::create_cabs(tsp, parameters, cabs_parameters, 1, parallelization_type);
 /// let solution = solver.search();
 /// assert_eq!(solution.cost, Some(6));
 /// assert_eq!(solution.transitions, vec![1, 2]);
@@ -396,23 +269,23 @@ pub enum ParallelizationType {
 /// assert!(!solution.is_infeasible);
 /// assert_eq!(solution.best_bound, Some(6));
 /// ```
-pub fn create_parallel_cabs<D, S, C, L, K>(
+pub fn create_cabs<'a, D, S, C, L, K>(
     dp: D,
     mut parameters: SearchParameters<C>,
     cabs_parameters: CabsParameters,
     threads: usize,
     parallelization_type: ParallelizationType,
-) -> Box<dyn Search<CostType = C, Label = L>>
+) -> Box<dyn Search<CostType = C, Label = L> + 'a>
 where
     D: DpMut<State = S, CostType = C, Label = L>
         + Dominance<State = S, Key = K>
         + BoundMut<State = S, CostType = C>
         + Clone
         + Send
-        + 'static,
+        + 'a,
     S: Clone + Send,
-    C: Ord + Copy + Signed + Display + Send + Sync + 'static,
-    L: Default + Copy + Send + Sync + 'static,
+    C: Ord + Copy + Signed + Display + Send + Sync + 'a,
+    L: Default + Copy + Send + Sync + 'a,
     K: Hash + Eq,
 {
     const THREAD_ASSIGNER_SEED: u32 = 0x5583c24d;
@@ -443,33 +316,22 @@ where
 
     let print_statistics = !parameters.quiet;
 
-    match parallelization_type {
-        ParallelizationType::Hd1 => {
-            let beam_search_closure = move |dp: &mut _, root_node, parameters: &_| {
-                let (solution, statistics) = parallel_search_algorithms::hd_beam_search1(
-                    dp,
-                    root_node,
-                    node_constructor,
-                    solution_checker,
-                    thread_assigner,
-                    parameters,
-                    threads,
-                )
-                .unwrap();
-
-                if print_statistics {
-                    println!(
-                        "Searched with beam size: {}, threads: {}, kept: {}, sent: {}",
-                        parameters.beam_width,
-                        threads,
-                        statistics.kept.iter().sum::<usize>(),
-                        statistics.sent.iter().sum::<usize>(),
-                    );
+    match threads {
+        0 => {
+            panic!("Creating CABS solver with 0 thread");
+        }
+        1 => {
+            let beam_search_closure = {
+                move |dp: &mut _, root_node, parameters: &_| {
+                    search_algorithms::beam_search(
+                        dp,
+                        root_node,
+                        node_constructor,
+                        solution_checker,
+                        parameters,
+                    )
                 }
-
-                solution
             };
-
             parameters.update_bounds(&dp);
 
             Box::new(Cabs::new(
@@ -480,30 +342,81 @@ where
                 cabs_parameters,
             ))
         }
-        ParallelizationType::Hd2 => {
-            let beam_search_closure = move |dp: &mut _, root_node, parameters: &_| {
-                let (solution, _) = parallel_search_algorithms::hd_beam_search2(
-                    dp,
-                    root_node,
-                    node_constructor,
-                    solution_checker,
-                    thread_assigner,
-                    parameters,
-                    threads,
-                )
-                .unwrap();
-                solution
-            };
+        _ => {
+            match parallelization_type {
+                ParallelizationType::Hd1 => {
+                    let beam_search_closure = move |dp: &mut _, root_node, parameters: &_| {
+                        let (solution, statistics) = parallel_search_algorithms::hd_beam_search1(
+                            dp,
+                            root_node,
+                            node_constructor,
+                            solution_checker,
+                            thread_assigner,
+                            parameters,
+                            threads,
+                        )
+                        .unwrap();
 
-            parameters.update_bounds(&dp);
+                        if print_statistics {
+                            println!(
+                                "HD1 Beam Search searched with beam size: {}, threads: {}, kept: {}, sent: {}",
+                                parameters.beam_width,
+                                threads,
+                                statistics.kept.iter().sum::<usize>(),
+                                statistics.sent.iter().sum::<usize>(),
+                            );
+                        }
 
-            Box::new(Cabs::new(
-                dp,
-                root_node_constructor,
-                beam_search_closure,
-                parameters,
-                cabs_parameters,
-            ))
+                        solution
+                    };
+
+                    parameters.update_bounds(&dp);
+
+                    Box::new(Cabs::new(
+                        dp,
+                        root_node_constructor,
+                        beam_search_closure,
+                        parameters,
+                        cabs_parameters,
+                    ))
+                }
+                ParallelizationType::Hd2 => {
+                    let beam_search_closure = move |dp: &mut _, root_node, parameters: &_| {
+                        let (solution, statistics) = parallel_search_algorithms::hd_beam_search2(
+                            dp,
+                            root_node,
+                            node_constructor,
+                            solution_checker,
+                            thread_assigner,
+                            parameters,
+                            threads,
+                        )
+                        .unwrap();
+
+                        if print_statistics {
+                            println!(
+                                "HD2 Beam Search searched with beam size: {}, threads: {}, kept: {}, sent: {}",
+                                parameters.beam_width,
+                                threads,
+                                statistics.kept.iter().sum::<usize>(),
+                                statistics.sent.iter().sum::<usize>(),
+                            );
+                        }
+
+                        solution
+                    };
+
+                    parameters.update_bounds(&dp);
+
+                    Box::new(Cabs::new(
+                        dp,
+                        root_node_constructor,
+                        beam_search_closure,
+                        parameters,
+                        cabs_parameters,
+                    ))
+                }
+            }
         }
     }
 }
@@ -565,7 +478,7 @@ mod tests {
             ..Default::default()
         };
         let cabs_parameters = CabsParameters::default();
-        let mut search = create_cabs(dp, parameters, cabs_parameters);
+        let mut search = create_cabs(dp, parameters, cabs_parameters, 1, ParallelizationType::Hd1);
 
         let solution = search.search();
         assert_eq!(solution.cost, Some(2));
@@ -586,7 +499,7 @@ mod tests {
             ..Default::default()
         };
         let cabs_parameters = CabsParameters::default();
-        let mut search = create_cabs(dp, parameters, cabs_parameters);
+        let mut search = create_cabs(dp, parameters, cabs_parameters, 1, ParallelizationType::Hd1);
 
         let solution = search.search();
         assert_eq!(solution.cost, None);
@@ -648,7 +561,7 @@ mod tests {
         };
         let cabs_parameters = CabsParameters::default();
         let mut search =
-            create_parallel_cabs(dp, parameters, cabs_parameters, 8, ParallelizationType::Hd1);
+            create_cabs(dp, parameters, cabs_parameters, 8, ParallelizationType::Hd1);
 
         let solution = search.search();
         assert_eq!(solution.cost, Some(2));
@@ -670,7 +583,7 @@ mod tests {
         };
         let cabs_parameters = CabsParameters::default();
         let mut search =
-            create_parallel_cabs(dp, parameters, cabs_parameters, 8, ParallelizationType::Hd1);
+            create_cabs(dp, parameters, cabs_parameters, 8, ParallelizationType::Hd1);
 
         let solution = search.search();
         assert_eq!(solution.cost, None);
@@ -691,7 +604,7 @@ mod tests {
         };
         let cabs_parameters = CabsParameters::default();
         let mut search =
-            create_parallel_cabs(dp, parameters, cabs_parameters, 8, ParallelizationType::Hd2);
+            create_cabs(dp, parameters, cabs_parameters, 8, ParallelizationType::Hd2);
 
         let solution = search.search();
         assert_eq!(solution.cost, Some(2));
@@ -713,7 +626,7 @@ mod tests {
         };
         let cabs_parameters = CabsParameters::default();
         let mut search =
-            create_parallel_cabs(dp, parameters, cabs_parameters, 8, ParallelizationType::Hd2);
+            create_cabs(dp, parameters, cabs_parameters, 8, ParallelizationType::Hd2);
 
         let solution = search.search();
         assert_eq!(solution.cost, None);

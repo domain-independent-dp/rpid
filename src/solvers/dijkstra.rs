@@ -91,15 +91,16 @@ use std::hash::Hash;
 /// assert!(!solution.is_infeasible);
 /// assert_eq!(solution.best_bound, Some(6));
 /// ```
-pub fn create_dijkstra<D, S, C, L, K>(
+pub fn create_dijkstra<'a, D, S, C, L, K>(
     dp: D,
     parameters: SearchParameters<C>,
-) -> impl Search<CostType = C, Label = L>
+) -> Box<dyn Search<CostType = C, Label = L> + 'a>
 where
-    D: DpMut<State = S, CostType = C, Label = L> + Dominance<State = S, Key = K>,
-    C: Ord + Copy + Signed + Display,
-    L: Default + Copy,
-    K: Hash + Eq,
+    D: DpMut<State = S, CostType = C, Label = L> + Dominance<State = S, Key = K> + 'a,
+    S: 'a,
+    C: Ord + Copy + Signed + Display + 'a,
+    L: Default + Copy + 'a,
+    K: Hash + Eq + 'a,
 {
     let root_node_constructor = |dp: &mut D, _| {
         Some(CostNode::create_root(
@@ -114,13 +115,13 @@ where
         };
     let solution_checker = |dp: &mut _, node: &CostNode<_, _, _, _>| node.check_solution(dp);
 
-    BestFirstSearch::new(
+    Box::new(BestFirstSearch::new(
         dp,
         root_node_constructor,
         node_constructor,
         solution_checker,
         parameters,
-    )
+    ))
 }
 
 #[cfg(test)]

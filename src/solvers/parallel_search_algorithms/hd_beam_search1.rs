@@ -54,6 +54,9 @@ where
     A: Fn(&D, &M, usize) -> usize + Clone + Send,
 {
     let threads = cmp::min(threads, parameters.beam_width);
+    if !parameters.search_parameters.quiet {
+        println!("HD1 Beam Search with {threads} threads.");
+    }
     let base_beam_size = parameters.beam_width / threads;
     let modulo = parameters.beam_width % threads;
 
