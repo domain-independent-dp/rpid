@@ -440,16 +440,15 @@ impl<T: Dp> DpMut for T {
 /// When a struct implements the `Bound` trait, [BoundMut] is automatically implemented for it.
 /// A solving algorithm should be generic over [BoundMut] to accept both [Bound] and [BoundMut].
 pub trait BoundMut {
-    /// Gets the dual bound of a state.
-    ///
-    /// Returns `None` if the state is not feasible.
-    fn get_dual_bound(&mut self, state: &Self::State) -> Option<Self::CostType>;
-
     /// Type of the state.
     type State;
     /// Type of the cost.
     type CostType;
 
+    /// Gets the dual bound of a state.
+    ///
+    /// Returns `None` if the state is not feasible.
+    fn get_dual_bound(&mut self, state: &Self::State) -> Option<Self::CostType>;
 
     /// Gets the global primal bound.
     ///
