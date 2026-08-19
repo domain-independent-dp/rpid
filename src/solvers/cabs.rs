@@ -1226,7 +1226,7 @@ where
         panic!("Creating multi-thread CABS solver with 0 thread");
     }
     let beam_search_closure = move |dp: &mut _, root_node, parameters: &_| {
-        let solution = parallel_search_algorithms::shared_beam_search(
+        parallel_search_algorithms::shared_beam_search(
             dp,
             root_node,
             node_constructor,
@@ -1234,9 +1234,7 @@ where
             parameters,
             threads,
         )
-        .unwrap();
-
-        solution
+        .unwrap()
     };
 
     parameters.update_bounds(&dp);
@@ -1396,7 +1394,7 @@ where
         panic!("Creating multi-thread CABS solver with 0 thread");
     }
     let beam_search_closure = move |dp: &mut _, root_node, parameters: &_| {
-        let solution = parallel_search_algorithms::shared_beam_search(
+        parallel_search_algorithms::shared_beam_search(
             dp,
             root_node,
             node_constructor,
@@ -1404,9 +1402,7 @@ where
             parameters,
             threads,
         )
-        .unwrap();
-
-        solution
+        .unwrap()
     };
 
     Box::new(Cabs::new(
