@@ -1,7 +1,7 @@
 use super::super::search_algorithms::{
     Beam, BeamSearchParameters, SearchNode, Solution, StateRegistry,
 };
-use super::hd_search_statistics::{HdSearchResult, HdSearchStatistics};
+use super::data_structures::hd_search_statistics::{HdSearchResult, HdSearchStatistics};
 use crate::dp::{Dominance, DpMut};
 use crate::timer::Timer;
 use bus::{Bus, BusReader};
@@ -145,6 +145,11 @@ where
         statistics.generated.push(information.generated);
         statistics.kept.push(information.kept);
         statistics.sent.push(information.sent);
+    }
+
+    let expansion_limit = parameters.search_parameters.expansion_limit;
+    if expansion_limit.is_some_and(|limit| solution.expanded >= limit) {
+        solution.is_expansion_limit_reached = true;
     }
 
     Ok((solution, statistics))
