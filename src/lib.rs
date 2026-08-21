@@ -87,7 +87,7 @@
 //!
 //! let tsp = Tsp { c: vec![vec![0, 1, 2], vec![1, 0, 3], vec![2, 3, 0]] };
 //! let mut solver
-//!     = solvers::create_cabs(tsp, SearchParameters::default(), CabsParameters::default(), 1, ParallelizationType::Hd1);
+//!     = solvers::create_cabs(tsp, SearchParameters::default(), CabsParameters::default());
 //! let solution = solver.search();
 //! assert_eq!(solution.cost, Some(6));
 //! assert_eq!(solution.transitions, vec![1, 2]);
