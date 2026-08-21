@@ -87,15 +87,8 @@ where
                     }
                 }
 
-                if let Some(node) = insertion_result.inserted {
-                    if self.primal_bound
-                        .is_none_or(|bound| self.dp.is_better_cost(node.get_cost(&self.dp), bound))
-                    {
-                        Some(node)
-                    }
-                    else{
-                        self.next()
-                    }
+                if insertion_result.inserted.is_some() {
+                    insertion_result.inserted
                 } else {
                     self.next()
                 }

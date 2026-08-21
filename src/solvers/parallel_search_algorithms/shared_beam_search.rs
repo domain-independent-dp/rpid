@@ -52,7 +52,7 @@ where
     G: Fn(&mut D, &N) -> Option<(C, Vec<L>)> + Clone + Send + Sync,
 {
     if !parameters.search_parameters.quiet {
-        println!("HD2 Beam Search with {threads} threads.");
+        println!("Shared-Beam Search with {threads} threads.");
     }
 
     let timer = parameters

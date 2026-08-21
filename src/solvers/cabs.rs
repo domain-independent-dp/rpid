@@ -1220,7 +1220,9 @@ where
         }
     };
     let solution_checker =
-        { |dp: &mut D, node: &SendableDualBoundNode<_, _, _, _, _, _>| node.check_solution(dp) };
+        { |dp: &mut D, node: &SendableDualBoundNode<_, _, _, _, _, _>| 
+            node.check_solution(dp) 
+        };
 
     if threads == 0 {
         panic!("Creating multi-thread CABS solver with 0 thread");
