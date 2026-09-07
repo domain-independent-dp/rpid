@@ -3,25 +3,25 @@ use crate::solvers::parallel_search_algorithms::ArcIdTree;
 use crate::solvers::search_algorithms::{SearchNode, Sequence};
 use std::cmp::Ordering;
 use std::marker::PhantomData;
-use std::ops::{Deref, Neg};
+use std::ops::Neg;
 use std::sync::{Arc, atomic};
 
 /// Node ordered by the path dual bound (f-value) computed from the state dual bound (h-value).
 ///
 /// Ties are broken by the h-value.
 #[derive(Debug)]
-pub struct SendableDualBoundNode<D, S, C, L, T = ArcIdTree<L>, P = Arc<T>> {
+pub struct SendableDualBoundNode<D, S, C, L> {
     state: S,
     g: C,
     h: C,
     f: C,
     closed: atomic::AtomicBool,
-    transition_tree: P,
-    _phantom: PhantomData<(D, L, T)>,
+    transition_tree: Arc<ArcIdTree<L>>,
+    _phantom: PhantomData<(D, L)>,
 }
 
-impl<D, S, C, L, T, P> SendableDualBoundNode<D, S, C, L, T, P> {
-    pub fn new(state: S, g: C, h: C, f: C, transition_tree: P) -> Self {
+impl<D, S, C, L> SendableDualBoundNode<D, S, C, L> {
+    pub fn new(state: S, g: C, h: C, f: C, transition_tree: Arc<ArcIdTree<L>>) -> Self {
         Self {
             state,
             g,
@@ -34,12 +34,11 @@ impl<D, S, C, L, T, P> SendableDualBoundNode<D, S, C, L, T, P> {
     }
 }
 
-impl<D, S, C, L, T, P> SendableDualBoundNode<D, S, C, L, T, P>
+impl<D, S, C, L> SendableDualBoundNode<D, S, C, L>
 where
     D: DpMut<State = S, CostType = C> + BoundMut<State = S, CostType = C>,
     C: Copy + Neg<Output = C>,
-    T: Default + Sequence<L, P>,
-    P: From<T> + Clone,
+    L: Copy + Default,
 {
     fn compute_h_and_f(dp: &D, g: C, h: C, primal_bound: Option<C>) -> Option<(C, C)> {
         let f = dp.combine_cost_weights(g, h);
@@ -69,7 +68,7 @@ where
             h,
             f,
             closed: atomic::AtomicBool::new(false),
-            transition_tree: P::from(T::default()),
+            transition_tree: Arc::new(ArcIdTree::<L>::default()),
             _phantom: PhantomData,
         })
     }
@@ -100,13 +99,13 @@ where
             h,
             f,
             closed: atomic::AtomicBool::new(false),
-            transition_tree: P::from(T::create_child(self.transition_tree.clone(), transition)),
+            transition_tree: Arc::new(ArcIdTree::<L>::create_child(self.transition_tree.clone(), transition)),
             _phantom: PhantomData,
         })
     }
 }
 
-impl<D, S, C, L, T, P> PartialEq for SendableDualBoundNode<D, S, C, L, T, P>
+impl<D, S, C, L> PartialEq for SendableDualBoundNode<D, S, C, L>
 where
     C: PartialEq,
 {
@@ -115,9 +114,9 @@ where
     }
 }
 
-impl<D, S, C, L, T, P> Eq for SendableDualBoundNode<D, S, C, L, T, P> where C: Eq {}
+impl<D, S, C, L> Eq for SendableDualBoundNode<D, S, C, L> where C: Eq {}
 
-impl<D, S, C, L, T, P> Ord for SendableDualBoundNode<D, S, C, L, T, P>
+impl<D, S, C, L> Ord for SendableDualBoundNode<D, S, C, L>
 where
     C: Eq + Ord,
 {
@@ -129,7 +128,7 @@ where
     }
 }
 
-impl<D, S, C, L, T, P> PartialOrd for SendableDualBoundNode<D, S, C, L, T, P>
+impl<D, S, C, L> PartialOrd for SendableDualBoundNode<D, S, C, L>
 where
     C: Eq + Ord,
 {
@@ -138,12 +137,11 @@ where
     }
 }
 
-impl<D, S, C, L, T, P> SearchNode for SendableDualBoundNode<D, S, C, L, T, P>
+impl<D, S, C, L> SearchNode for SendableDualBoundNode<D, S, C, L>
 where
     D: DpMut<State = S, CostType = C>,
     C: Copy + Neg<Output = C>,
-    T: Sequence<L, P>,
-    P: Deref<Target = T>,
+    L: Copy,
 {
     type DpData = D;
     type State = S;

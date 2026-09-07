@@ -70,12 +70,6 @@ where
         }
     }
 
-    // /// Tries to reserve capacity.
-    // #[inline]
-    // pub fn try_reserve(&mut self, additional: usize) -> Result<(), TryReserveError> {
-    //     self.map.try_reserve(additional)
-    // }
-
     fn remove_dominated(
         list: &mut SmallVec<[Arc<N>; 1]>,
         dp: &D,

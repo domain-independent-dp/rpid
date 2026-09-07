@@ -277,13 +277,13 @@ where
          state,
          cost,
          transition,
-         parent: &DualBoundNode<_, _, _, _, ArcIdTree<L>, Arc<_>>,
+         parent: &DualBoundNode<_, _, _, _>,
          primal_bound| {
             parent.create_child(dp, state, cost, transition, primal_bound, None)
         }
     };
     let solution_checker =
-        { |dp: &mut D, node: &DualBoundNode<_, _, _, _, _, _>| node.check_solution(dp) };
+        { |dp: &mut D, node: &DualBoundNode<_, _, _, _>| node.check_solution(dp) };
 
     let beam_search_closure = {
         move |dp: &mut _, root_node, parameters: &_| {
@@ -1220,7 +1220,7 @@ where
         }
     };
     let solution_checker =
-        { |dp: &mut D, node: &SendableDualBoundNode<_, _, _, _, _, _>| 
+        { |dp: &mut D, node: &SendableDualBoundNode<_, _, _, _>| 
             node.check_solution(dp) 
         };
 
@@ -1388,7 +1388,7 @@ where
         }
     };
     let solution_checker =
-        { |dp: &mut D, node: &SendableCostNode<_, _, _, _, _, _>| 
+        { |dp: &mut D, node: &SendableCostNode<_, _, _, _>| 
             node.check_solution(dp) 
         };
 

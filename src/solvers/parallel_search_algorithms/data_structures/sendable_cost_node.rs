@@ -3,24 +3,23 @@ use crate::solvers::parallel_search_algorithms::ArcIdTree;
 use crate::solvers::search_algorithms::{SearchNode, Sequence};
 use std::cmp::Ordering;
 use std::marker::PhantomData;
-use std::ops::{Deref, Neg};
+use std::ops::Neg;
 use std::sync::{Arc, atomic};
 
 /// Node ordered by the cost.
-pub struct SendableCostNode<D, S, C, L, T = ArcIdTree<L>, P = Arc<T>> {
+pub struct SendableCostNode<D, S, C, L> {
     state: S,
     cost: C,
     closed: atomic::AtomicBool,
-    transition_tree: P,
-    _phantom: PhantomData<(D, L, T)>,
+    transition_tree: Arc<ArcIdTree<L>>,
+    _phantom: PhantomData<(D, L)>,
 }
 
-impl<D, S, C, L, T, P> SendableCostNode<D, S, C, L, T, P>
+impl<D, S, C, L> SendableCostNode<D, S, C, L>
 where
     D: DpMut<State = S, CostType = C>,
     C: Neg<Output = C>,
-    T: Default + Sequence<L, P>,
-    P: From<T> + Clone,
+    L: Copy + Default,
 {
     /// Creates a new root node given the state and the cost.
     pub fn create_root(dp: &D, state: S, cost: C) -> Self {
@@ -31,7 +30,7 @@ where
                 OptimizationMode::Maximization => cost,
             },
             closed: atomic::AtomicBool::new(false),
-            transition_tree: P::from(T::default()),
+            transition_tree: Arc::new(ArcIdTree::<L>::default()),
             _phantom: PhantomData,
         }
     }
@@ -45,7 +44,7 @@ where
                 OptimizationMode::Maximization => cost,
             },
             closed: atomic::AtomicBool::new(false),
-            transition_tree: P::from(T::create_child(
+            transition_tree: Arc::new(ArcIdTree::<L>::create_child(
                 self.transition_tree.clone(),
                 transition,
             )),
@@ -54,11 +53,10 @@ where
     }
 }
 
-impl<D, S, C, L, T, P> Clone for SendableCostNode<D, S, C, L, T, P>
+impl<D, S, C, L> Clone for SendableCostNode<D, S, C, L>
 where
     S: Clone,
     C: Clone,
-    P: Clone,
 {
     fn clone(&self) -> Self {
         Self {
@@ -71,12 +69,11 @@ where
     }
 }
 
-impl<D, S, C, L, T, P> SearchNode for SendableCostNode<D, S, C, L, T, P>
+impl<D, S, C, L> SearchNode for SendableCostNode<D, S, C, L>
 where
     D: DpMut<State = S, CostType = C, Label = L>,
     C: Copy + Neg<Output = C>,
-    T: Sequence<L, P>,
-    P: Deref<Target=T>,
+    L: Copy,
 {
     type DpData = D;
     type State = S;
@@ -115,7 +112,7 @@ where
     }
 }
 
-impl<D, S, C, L, T, P> PartialEq for SendableCostNode<D, S, C, L, T, P>
+impl<D, S, C, L> PartialEq for SendableCostNode<D, S, C, L>
 where
     C: PartialEq,
 {
@@ -124,9 +121,9 @@ where
     }
 }
 
-impl<D, S, C, L, T, P> Eq for SendableCostNode<D, S, C, L, T, P> where C: Eq {}
+impl<D, S, C, L> Eq for SendableCostNode<D, S, C, L> where C: Eq {}
 
-impl<D, S, C, L, T, P> Ord for SendableCostNode<D, S, C, L, T, P>
+impl<D, S, C, L> Ord for SendableCostNode<D, S, C, L>
 where
     C: Eq + Ord,
 {
@@ -135,7 +132,7 @@ where
     }
 }
 
-impl<D, S, C, L, T, P> PartialOrd for SendableCostNode<D, S, C, L, T, P>
+impl<D, S, C, L> PartialOrd for SendableCostNode<D, S, C, L>
 where
     C: Eq + Ord,
 {
