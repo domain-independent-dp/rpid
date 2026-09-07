@@ -1,10 +1,12 @@
 use super::search_algorithms::CabsParameters;
-use crate::solvers::parallel_search_algorithms::{self, ArcIdTree, SendableCostNode, SendableDualBoundNode, hash_distribution};
+use crate::solvers::parallel_search_algorithms::{
+    self, ArcIdTree, SendableCostNode, SendableDualBoundNode, hash_distribution,
+};
 use crate::solvers::search_algorithms::{self, Cabs, CostNode, DualBoundNode, SearchNode};
 use crate::solvers::{Search, SearchParameters};
 use crate::{BoundMut, Dominance, DpMut};
-use num_traits::Signed;
 use core::panic;
+use num_traits::Signed;
 use std::fmt::Display;
 use std::hash::Hash;
 use std::sync::Arc;
@@ -142,14 +144,6 @@ where
     ))
 }
 
-/// Parallelization types for parallel CABS.
-pub enum ParallelizationType {
-    /// Parallelize the beam search using the HD1 parallelization strategy.
-    Hd1,
-    /// Parallelize the beam search using the HD2 parallelization strategy.
-    Hd2,
-}
-
 /// Creates complete anytime beam search (CABS) solver.
 ///
 /// Search nodes are ordered by the f-value, which is the combination of the cost and the dual bound.
@@ -158,7 +152,7 @@ pub enum ParallelizationType {
 ///
 /// # Panic
 /// When `threads` argument takes 0 value.
-/// 
+///
 /// # Examples
 ///
 /// ```
@@ -308,7 +302,7 @@ where
 }
 
 /// Creates complete anytime hash distributed beam search 2 (CAHDBS2) solver.
-/// This is the default parallelization version of CABS, since it was experimented with the best performance in previous research. 
+/// This is the default parallelization version of CABS, since it was experimented with the best performance in previous research.
 ///
 /// Search nodes are ordered by the f-value, which is the combination of the cost and the dual bound.
 ///
@@ -318,10 +312,10 @@ where
 ///
 /// Ryo Kuroiwa and J. Christopher Beck. "Parallel Beam Search Algorithms for Domain-Independent Dynamic Programming,"
 /// Proceedings of the 38th Annual AAAI Conference on Artificial Intelligence (AAAI), 2024.
-/// 
+///
 /// # Panic
 /// When `threads` argument takes 0 value.
-/// 
+///
 /// # Examples
 ///
 /// ```
@@ -405,7 +399,7 @@ where
 ///     quiet: true,
 ///     ..Default::default()
 /// };
-/// 
+///
 /// let cabs_parameters = CabsParameters::default();
 /// let mut solver = solvers::create_parallel_cabs(tsp, parameters, cabs_parameters, 8);
 /// let solution = solver.search();
@@ -434,7 +428,10 @@ where
     K: Hash + Eq,
 {
     if !parameters.quiet {
-        println!("Created Complete Anytime Hash Distributed Beam Search 2 (CAHDBS2) with {} threads.", threads);
+        println!(
+            "Created Complete Anytime Hash Distributed Beam Search 2 (CAHDBS2) with {} threads.",
+            threads
+        );
     }
 
     const THREAD_ASSIGNER_SEED: u32 = 0x5583c24d;
@@ -507,17 +504,17 @@ where
 
 /// Creates complete anytime hash distributed beam search 2 (CAHDBS2) solver without guidance.
 /// This is the default parallelization version of CABS without guidance.
-/// 
+///
 /// Search nodes are ordered by the cost.
 ///
 /// # References
 ///
 /// Ryo Kuroiwa and J. Christopher Beck. "Parallel Beam Search Algorithms for Domain-Independent Dynamic Programming,"
 /// Proceedings of the 38th Annual AAAI Conference on Artificial Intelligence (AAAI), 2024.
-/// 
+///
 /// # Panic
 /// When `threads` argument takes 0 value.
-/// 
+///
 /// # Examples
 ///
 /// ```
@@ -592,7 +589,7 @@ where
 ///     quiet: true,
 ///     ..Default::default()
 /// };
-/// 
+///
 /// let cabs_parameters = CabsParameters::default();
 /// let mut solver = solvers::create_blind_parallel_cabs(tsp, parameters, cabs_parameters, 8);
 /// let solution = solver.search();
@@ -620,16 +617,19 @@ where
     K: Hash + Eq,
 {
     if !parameters.quiet {
-        println!("Created Complete Anytime Hash Distributed Beam Search 2 (CAHDBS2) with {} threads without guidance.", threads);
+        println!(
+            "Created Complete Anytime Hash Distributed Beam Search 2 (CAHDBS2) with {} threads without guidance.",
+            threads
+        );
     }
 
     const THREAD_ASSIGNER_SEED: u32 = 0x5583c24d;
 
     let root_node_constructor = |dp: &mut D, _| {
         Some(CostNode::create_root(
-            dp, 
-            dp.get_target(), 
-            dp.get_identity_weight()
+            dp,
+            dp.get_target(),
+            dp.get_identity_weight(),
         ))
     };
     let node_constructor = {
@@ -638,20 +638,17 @@ where
          cost,
          transition,
          parent: &CostNode<_, _, _, _, ArcIdTree<L>, Arc<_>>,
-         _| {
-            Some(parent.create_child(dp, state, cost, transition))
-        }
+         _| { Some(parent.create_child(dp, state, cost, transition)) }
     };
     let solution_checker =
         { |dp: &mut D, node: &CostNode<_, _, _, _, _, _>| node.check_solution(dp) };
-    let thread_assigner =
-        move |dp: &D, message: &CostNode<_, _, _, _, _, _>, threads: usize| {
-            hash_distribution::fx_hash_assign_thread(
-                &dp.get_key(message.get_state(dp)),
-                threads,
-                THREAD_ASSIGNER_SEED,
-            )
-        };
+    let thread_assigner = move |dp: &D, message: &CostNode<_, _, _, _, _, _>, threads: usize| {
+        hash_distribution::fx_hash_assign_thread(
+            &dp.get_key(message.get_state(dp)),
+            threads,
+            THREAD_ASSIGNER_SEED,
+        )
+    };
 
     let print_statistics = !parameters.quiet;
 
@@ -703,10 +700,10 @@ where
 ///
 /// Ryo Kuroiwa and J. Christopher Beck. "Parallel Beam Search Algorithms for Domain-Independent Dynamic Programming,"
 /// Proceedings of the 38th Annual AAAI Conference on Artificial Intelligence (AAAI), 2024.
-/// 
+///
 /// # Panic
 /// When `threads` argument takes 0 value.
-/// 
+///
 /// # Examples
 ///
 /// ```
@@ -790,7 +787,7 @@ where
 ///     quiet: true,
 ///     ..Default::default()
 /// };
-/// 
+///
 /// let cabs_parameters = CabsParameters::default();
 /// let mut solver = solvers::create_cahdbs1(tsp, parameters, cabs_parameters, 8);
 /// let solution = solver.search();
@@ -819,7 +816,10 @@ where
     K: Hash + Eq,
 {
     if !parameters.quiet {
-        println!("Created Complete Anytime Hash Distributed Beam Search 1 (CAHDBS1) with {} threads.", threads);
+        println!(
+            "Created Complete Anytime Hash Distributed Beam Search 1 (CAHDBS1) with {} threads.",
+            threads
+        );
     }
 
     const THREAD_ASSIGNER_SEED: u32 = 0x5583c24d;
@@ -897,10 +897,10 @@ where
 ///
 /// Ryo Kuroiwa and J. Christopher Beck. "Parallel Beam Search Algorithms for Domain-Independent Dynamic Programming,"
 /// Proceedings of the 38th Annual AAAI Conference on Artificial Intelligence (AAAI), 2024.
-/// 
+///
 /// # Panic
 /// When `threads` argument takes 0 value.
-/// 
+///
 /// # Examples
 ///
 /// ```
@@ -975,7 +975,7 @@ where
 ///     quiet: true,
 ///     ..Default::default()
 /// };
-/// 
+///
 /// let cabs_parameters = CabsParameters::default();
 /// let mut solver = solvers::create_blind_cahdbs1(tsp, parameters, cabs_parameters, 8);
 /// let solution = solver.search();
@@ -1003,16 +1003,19 @@ where
     K: Hash + Eq,
 {
     if !parameters.quiet {
-        println!("Created Complete Anytime Hash Distributed Beam Search 1 (CAHDBS1) with {} threads without guidance.", threads);
+        println!(
+            "Created Complete Anytime Hash Distributed Beam Search 1 (CAHDBS1) with {} threads without guidance.",
+            threads
+        );
     }
 
     const THREAD_ASSIGNER_SEED: u32 = 0x5583c24d;
 
     let root_node_constructor = |dp: &mut D, _| {
         Some(CostNode::create_root(
-            dp, 
-            dp.get_target(), 
-            dp.get_identity_weight()
+            dp,
+            dp.get_target(),
+            dp.get_identity_weight(),
         ))
     };
     let node_constructor = {
@@ -1021,20 +1024,17 @@ where
          cost,
          transition,
          parent: &CostNode<_, _, _, _, ArcIdTree<L>, Arc<_>>,
-         _| {
-            Some(parent.create_child(dp, state, cost, transition))
-        }
+         _| { Some(parent.create_child(dp, state, cost, transition)) }
     };
     let solution_checker =
         { |dp: &mut D, node: &CostNode<_, _, _, _, _, _>| node.check_solution(dp) };
-    let thread_assigner =
-        move |dp: &D, message: &CostNode<_, _, _, _, _, _>, threads: usize| {
-            hash_distribution::fx_hash_assign_thread(
-                &dp.get_key(message.get_state(dp)),
-                threads,
-                THREAD_ASSIGNER_SEED,
-            )
-        };
+    let thread_assigner = move |dp: &D, message: &CostNode<_, _, _, _, _, _>, threads: usize| {
+        hash_distribution::fx_hash_assign_thread(
+            &dp.get_key(message.get_state(dp)),
+            threads,
+            THREAD_ASSIGNER_SEED,
+        )
+    };
 
     let print_statistics = !parameters.quiet;
 
@@ -1086,10 +1086,10 @@ where
 ///
 /// Ryo Kuroiwa and J. Christopher Beck. "Parallel Beam Search Algorithms for Domain-Independent Dynamic Programming,"
 /// Proceedings of the 38th Annual AAAI Conference on Artificial Intelligence (AAAI), 2024.
-/// 
+///
 /// # Panic
 /// When `threads` argument takes 0 value.
-/// 
+///
 /// # Examples
 ///
 /// ```
@@ -1173,7 +1173,7 @@ where
 ///     quiet: true,
 ///     ..Default::default()
 /// };
-/// 
+///
 /// let cabs_parameters = CabsParameters::default();
 /// let mut solver = solvers::create_casbs(tsp, parameters, cabs_parameters, 8);
 /// let solution = solver.search();
@@ -1203,7 +1203,10 @@ where
     K: Hash + Eq + Send + Sync,
 {
     if !parameters.quiet {
-        println!("Created Complete Anytime Shared-Beam Search (CASBS) with {} threads.", threads);
+        println!(
+            "Created Complete Anytime Shared-Beam Search (CASBS) with {} threads.",
+            threads
+        );
     }
 
     let root_node_constructor = |dp: &mut D, bound| {
@@ -1260,10 +1263,10 @@ where
 ///
 /// Ryo Kuroiwa and J. Christopher Beck. "Parallel Beam Search Algorithms for Domain-Independent Dynamic Programming,"
 /// Proceedings of the 38th Annual AAAI Conference on Artificial Intelligence (AAAI), 2024.
-/// 
+///
 /// # Panic
 /// When `threads` argument takes 0 value.
-/// 
+///
 /// # Examples
 ///
 /// ```
@@ -1338,7 +1341,7 @@ where
 ///     quiet: true,
 ///     ..Default::default()
 /// };
-/// 
+///
 /// let cabs_parameters = CabsParameters::default();
 /// let mut solver = solvers::create_blind_casbs(tsp, parameters, cabs_parameters, 8);
 /// let solution = solver.search();
@@ -1367,23 +1370,21 @@ where
     K: Hash + Eq + Send + Sync,
 {
     if !parameters.quiet {
-        println!("Created Complete Anytime Shared-Beam Search (CASBS) with {} threads without guidance.", threads);
+        println!(
+            "Created Complete Anytime Shared-Beam Search (CASBS) with {} threads without guidance.",
+            threads
+        );
     }
 
     let root_node_constructor = |dp: &mut D, _| {
         Some(SendableCostNode::create_root(
-            dp, 
-            dp.get_target(), 
-            dp.get_identity_weight()
+            dp,
+            dp.get_target(),
+            dp.get_identity_weight(),
         ))
     };
     let node_constructor = {
-        |dp: &mut D,
-         state,
-         cost,
-         transition,
-         parent: &SendableCostNode<_, _, _, _>,
-         _| {
+        |dp: &mut D, state, cost, transition, parent: &SendableCostNode<_, _, _, _>, _| {
             Some(parent.create_child(dp, state, cost, transition))
         }
     };
@@ -1789,5 +1790,5 @@ mod tests {
         assert!(solution.is_infeasible);
         assert!(!solution.is_time_limit_reached);
         assert!(!solution.is_expansion_limit_reached);
-    }    
+    }
 }

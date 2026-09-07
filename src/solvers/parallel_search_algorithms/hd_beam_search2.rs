@@ -334,6 +334,7 @@ fn single_sync_beam_search2<D, S, C, L, K, N, M, F, G, A>(
             let mut sent_all = false;
             let mut expanded_all = false;
             let mut received_all = 0;
+            let mut bound_finalized = false;
 
             let mut iter = current_beam.drain();
             while !sent_all || received_all < threads - 1 {
@@ -359,7 +360,7 @@ fn single_sync_beam_search2<D, S, C, L, K, N, M, F, G, A>(
 
                         if let Some(other) = information.cost {
                             if incumbent_cost.is_none_or(|old_cost| {
-                                dp.is_better_cost(other, old_cost) || 
+                                dp.is_better_cost(other, old_cost) ||
                                 (other == old_cost && information.id < goal_id.unwrap())
                             }) {
                                 incumbent_cost = Some(other);
@@ -372,20 +373,25 @@ fn single_sync_beam_search2<D, S, C, L, K, N, M, F, G, A>(
                                 }
                             }
                         }
+                    }
+                }
 
-                        if opened == threads - 1 {
-                            if let Some(value) = previous_layer_dual_bound {
-                                if primal_bound.is_some_and(|old_primal| {
-                                    !dp.is_better_cost(value, old_primal)
-                                }) {
-                                    best_dual_bound = primal_bound;
-                                } else if best_dual_bound
-                                    .is_none_or(|bound| {
-                                        dp.is_better_cost(bound, value)
-                                }) {
-                                    best_dual_bound = Some(value);
-                                }
-                            }
+                // Finalizes the dual bound of the previous layer once every thread's report
+                // has been accounted for. With a single thread, this is trivially true from
+                // the start (there are no peers to wait for), so it must not be nested inside
+                // the `opened < threads - 1` block above, which is never entered in that case.
+                if !bound_finalized && opened == threads - 1 {
+                    bound_finalized = true;
+
+                    if let Some(value) = previous_layer_dual_bound {
+                        if primal_bound
+                            .is_some_and(|old_primal| !dp.is_better_cost(value, old_primal))
+                        {
+                            best_dual_bound = primal_bound;
+                        } else if best_dual_bound
+                            .is_none_or(|bound| dp.is_better_cost(bound, value))
+                        {
+                            best_dual_bound = Some(value);
                         }
                     }
                 }
@@ -864,5 +870,118 @@ mod tests {
         assert_eq!(statistic.generated.len(), 8);
         assert_eq!(statistic.kept.len(), 8);
         assert_eq!(statistic.sent.len(), 8);
+    }
+
+    #[derive(Clone)]
+    struct BoundedMockNode(i32, i32, Cell<bool>, Vec<usize>);
+
+    impl SearchNode for BoundedMockNode {
+        type DpData = MockDp;
+        type State = i32;
+        type CostType = i32;
+        type Label = usize;
+
+        fn get_state(&self, _: &Self::DpData) -> &Self::State {
+            &self.0
+        }
+
+        fn get_state_mut(&mut self, _: &Self::DpData) -> &mut Self::State {
+            &mut self.0
+        }
+
+        fn get_cost(&self, _: &Self::DpData) -> Self::CostType {
+            self.1
+        }
+
+        // An exact cost-to-go estimate: state == remaining steps, so cost + state
+        // always equals the final solution cost for this chain DP.
+        fn get_bound(&self, _: &Self::DpData) -> Option<Self::CostType> {
+            Some(self.0 + self.1)
+        }
+
+        fn close(&self) {
+            self.2.set(true)
+        }
+
+        fn is_closed(&self) -> bool {
+            self.2.get()
+        }
+
+        fn get_transitions(&self, _: &Self::DpData) -> Vec<Self::Label> {
+            self.3.clone()
+        }
+    }
+
+    impl PartialEq for BoundedMockNode {
+        fn eq(&self, other: &Self) -> bool {
+            self.1 == other.1
+        }
+    }
+
+    impl Eq for BoundedMockNode {}
+
+    impl Ord for BoundedMockNode {
+        fn cmp(&self, other: &Self) -> Ordering {
+            other.1.cmp(&self.1)
+        }
+    }
+
+    impl PartialOrd for BoundedMockNode {
+        fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+            Some(self.cmp(other))
+        }
+    }
+
+    #[test]
+    fn test_hd_beam_search2_single_thread_reports_dual_bound() {
+        let dp = MockDp(2);
+        let root_node = BoundedMockNode(
+            Dp::get_target(&dp),
+            Dp::get_identity_weight(&dp),
+            Cell::new(false),
+            Vec::new(),
+        );
+        let node_constructor = |_: &mut _, state, cost, transition, parent: &BoundedMockNode, _| {
+            let mut transitions = parent.3.clone();
+            transitions.push(transition);
+            Some(BoundedMockNode(state, cost, Cell::new(false), transitions))
+        };
+        let solution_checker = |dp: &mut MockDp, node: &BoundedMockNode| {
+            dp.get_base_cost(node.get_state(dp)).map(|cost| {
+                (
+                    Dp::combine_cost_weights(dp, node.get_cost(dp), cost),
+                    node.3.clone(),
+                )
+            })
+        };
+        let thread_assigner = |dp: &MockDp, message: &BoundedMockNode, threads: usize| {
+            hash_distribution::fx_hash_assign_thread(&dp.get_key(message.get_state(dp)), threads, 0)
+        };
+        // A beam width of 1 makes `hd_beam_search2` cap the active thread count at 1
+        // (`threads = cmp::min(threads, beam_width)`), even though 8 are requested here.
+        // This exercises the single-thread path, which has no peer to synchronize with.
+        let parameters = BeamSearchParameters {
+            beam_width: 1,
+            search_parameters: SearchParameters {
+                quiet: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let result = hd_beam_search2(
+            &dp,
+            root_node,
+            node_constructor,
+            solution_checker,
+            thread_assigner,
+            &parameters,
+            8,
+        );
+        assert!(result.is_ok());
+        let (solution, _) = result.unwrap();
+        assert_eq!(solution.cost, Some(2));
+        assert_eq!(solution.best_bound, Some(2));
+        assert!(solution.is_optimal);
     }
 }

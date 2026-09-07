@@ -117,6 +117,6 @@ pub use solvers::Solution;
 
 pub mod prelude {
     //! Prelude to import commonly used items.
-    pub use super::solvers::{CabsParameters, ParallelizationType, Search, SearchParameters};
+    pub use super::solvers::{CabsParameters, Search, SearchParameters};
     pub use super::{Bound, Dominance, Dp, OptimizationMode, Solution};
 }
