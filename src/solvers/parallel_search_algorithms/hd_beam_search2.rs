@@ -13,10 +13,10 @@ use std::{cmp, mem, thread};
 /// Performs hash distributed beam search 2 (HDBS2).
 ///
 /// It keeps the best `beam_size` nodes at each layer.
-/// 
+///
 /// Type parameter `N` is a node type that implements `SearchNode`, and type parameter `M` is a node message type that is sendable
 /// and can be transformed into a `N` node.
-/// 
+///
 /// `node_constructor` is a function that constructs a new search node from the given state,
 /// cost, transition, parent node, and primal bound.
 ///
@@ -321,10 +321,13 @@ fn single_sync_beam_search2<D, S, C, L, K, N, M, F, G, A>(
     });
 
     loop {
-
         let mut is_empty = current_beam.is_empty();
         let mut incumbent_cost = incumbent.as_ref().map(|(cost, _)| *cost);
-        let mut goal_id = if incumbent_cost.is_some() { Some(id) } else { None };
+        let mut goal_id = if incumbent_cost.is_some() {
+            Some(id)
+        } else {
+            None
+        };
 
         {
             let mut previous_layer_dual_bound = layer_dual_bound;
@@ -351,24 +354,24 @@ fn single_sync_beam_search2<D, S, C, L, K, N, M, F, G, A>(
                         time_out |= information.time_out;
 
                         if let Some(bound) = information.bound {
-                            if previous_layer_dual_bound.is_none_or(|old_bound| {
-                                dp.is_better_cost(bound, old_bound)
-                            }) {
+                            if previous_layer_dual_bound
+                                .is_none_or(|old_bound| dp.is_better_cost(bound, old_bound))
+                            {
                                 previous_layer_dual_bound = Some(bound);
                             }
                         }
 
                         if let Some(other) = information.cost {
                             if incumbent_cost.is_none_or(|old_cost| {
-                                dp.is_better_cost(other, old_cost) ||
-                                (other == old_cost && information.id < goal_id.unwrap())
+                                dp.is_better_cost(other, old_cost)
+                                    || (other == old_cost && information.id < goal_id.unwrap())
                             }) {
                                 incumbent_cost = Some(other);
                                 goal_id = Some(information.id);
 
-                                if primal_bound.is_none_or(|old_primal| {
-                                    dp.is_better_cost(other, old_primal)
-                                }) {
+                                if primal_bound
+                                    .is_none_or(|old_primal| dp.is_better_cost(other, old_primal))
+                                {
                                     primal_bound = Some(other);
                                 }
                             }

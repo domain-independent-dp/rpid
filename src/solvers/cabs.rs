@@ -160,12 +160,10 @@ where
 /// use rpid::solvers;
 /// use fixedbitset::FixedBitSet;
 ///
-/// #[derive(Clone)]
 /// struct Tsp {
 ///     c: Vec<Vec<i32>>,
 /// }
 ///
-/// #[derive(Clone, Hash)]
 /// struct TspState {
 ///     unvisited: FixedBitSet,
 ///     current: usize,
@@ -267,12 +265,7 @@ where
         DualBoundNode::create_root(dp, dp.get_target(), dp.get_identity_weight(), bound)
     };
     let node_constructor = {
-        |dp: &mut D,
-         state,
-         cost,
-         transition,
-         parent: &DualBoundNode<_, _, _, _>,
-         primal_bound| {
+        |dp: &mut D, state, cost, transition, parent: &DualBoundNode<_, _, _, _>, primal_bound| {
             parent.create_child(dp, state, cost, transition, primal_bound, None)
         }
     };
@@ -1223,9 +1216,7 @@ where
         }
     };
     let solution_checker =
-        { |dp: &mut D, node: &SendableDualBoundNode<_, _, _, _>| 
-            node.check_solution(dp) 
-        };
+        { |dp: &mut D, node: &SendableDualBoundNode<_, _, _, _>| node.check_solution(dp) };
 
     if threads == 0 {
         panic!("Creating multi-thread CABS solver with 0 thread");
@@ -1389,9 +1380,7 @@ where
         }
     };
     let solution_checker =
-        { |dp: &mut D, node: &SendableCostNode<_, _, _, _>| 
-            node.check_solution(dp) 
-        };
+        { |dp: &mut D, node: &SendableCostNode<_, _, _, _>| node.check_solution(dp) };
 
     if threads == 0 {
         panic!("Creating multi-thread CABS solver with 0 thread");

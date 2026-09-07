@@ -1,14 +1,12 @@
-use super::super::search_algorithms::{
-    BeamSearchParameters, SearchNode, Solution,
-};
+use super::super::search_algorithms::{BeamSearchParameters, SearchNode, Solution};
 use super::data_structures::{ConcurrentStateRegistry, SendableSuccessorIterator};
 use crate::OptimizationMode;
 use crate::dp::{Dominance, DpMut};
 use crate::timer::Timer;
+use rayon::prelude::*;
 use std::error::Error;
 use std::fmt::Display;
 use std::hash::Hash;
-use rayon::prelude::*;
 
 /// Performs shared beam search (SBS).
 ///
@@ -32,7 +30,7 @@ use rayon::prelude::*;
 /// # Panics
 ///
 /// If it fails to create a thread pool or reserve memory for the state registry.
-/// 
+///
 pub fn shared_beam_search<D, S, C, L, K, N, F, G>(
     dp: &D,
     root_node: N,
@@ -42,7 +40,11 @@ pub fn shared_beam_search<D, S, C, L, K, N, F, G>(
     threads: usize,
 ) -> Result<Solution<C, L>, Box<dyn Error>>
 where
-    D: DpMut<State = S, CostType = C, Label = L> + Dominance<State = S, Key = K> + Clone + Send + Sync,
+    D: DpMut<State = S, CostType = C, Label = L>
+        + Dominance<State = S, Key = K>
+        + Clone
+        + Send
+        + Sync,
     S: Send + Sync,
     C: Ord + Copy + Display + Send + Sync,
     L: Copy + Send + Sync,
@@ -70,10 +72,8 @@ where
         .initial_registry_capacity
         .unwrap_or_else(|| beam.capacity());
     let shard_amount = (threads * 4).next_power_of_two();
-    let mut registry = ConcurrentStateRegistry::with_capacity_and_shard_amount(
-        capacity,
-        shard_amount,
-    );
+    let mut registry =
+        ConcurrentStateRegistry::with_capacity_and_shard_amount(capacity, shard_amount);
 
     let mut best_dual_bound = root_node.get_bound(dp);
     let insertion_result = registry.insert_if_not_dominated(dp, root_node);
@@ -105,10 +105,9 @@ where
             goal_information.par_extend(beam.par_drain(..).filter_map(|node| {
                 node.close();
 
-                if let Some((solution_cost, transitions)) = solution_checker(&mut dp.clone(), &node) {
-                    if primal_bound
-                        .is_none_or(|bound| dp.is_better_cost(solution_cost, bound))
-                    {
+                if let Some((solution_cost, transitions)) = solution_checker(&mut dp.clone(), &node)
+                {
+                    if primal_bound.is_none_or(|bound| dp.is_better_cost(solution_cost, bound)) {
                         Some((node, Some((solution_cost, transitions))))
                     } else {
                         None
@@ -118,22 +117,20 @@ where
                 }
             }));
 
-            let filtered_goals = goal_information
-                .par_iter()
-                .filter_map(|(_, result)| {
-                    if let Some((cost, transitions)) = result {
-                        Some((cost, transitions))
-                    } else {
-                        None
-                    }
-                });
+            let filtered_goals = goal_information.par_iter().filter_map(|(_, result)| {
+                if let Some((cost, transitions)) = result {
+                    Some((cost, transitions))
+                } else {
+                    None
+                }
+            });
 
-            if let Some((cost, transitions)) = 
+            if let Some((cost, transitions)) =
                 if dp.get_optimization_mode() == OptimizationMode::Minimization {
                     filtered_goals.min_by_key(|goal| goal.0)
                 } else {
                     filtered_goals.max_by_key(|goal| goal.0)
-                } 
+                }
             {
                 primal_bound = Some(*cost);
                 Some((*cost, transitions.clone()))
@@ -201,11 +198,11 @@ where
                                     dp.clone(),
                                     node_constructor.clone(),
                                     &registry,
-                                    primal_bound
+                                    primal_bound,
                                 ))
                             } else {
                                 None
-                            }   
+                            }
                         })
                         .flatten_iter(),
                 );
@@ -225,21 +222,21 @@ where
                                 bound = removed_dual_bound.unwrap();
                             }
 
-                            if primal_bound.is_some_and(|primal_bound| {
-                                !dp.is_better_cost(bound, primal_bound)
-                            }) {
+                            if primal_bound
+                                .is_some_and(|primal_bound| !dp.is_better_cost(bound, primal_bound))
+                            {
                                 best_dual_bound = primal_bound;
-                            } else if best_dual_bound.is_none_or(|best_bound| {
-                                dp.is_better_cost(best_bound, bound)
-                            }) {
+                            } else if best_dual_bound
+                                .is_none_or(|best_bound| dp.is_better_cost(best_bound, bound))
+                            {
                                 best_dual_bound = Some(bound);
                             }
                         }
 
                         if let Some(bound) = non_dominated_successors[beam_size].get_bound(dp) {
-                            if removed_dual_bound.is_none_or(|removed_bound| {
-                                dp.is_better_cost(bound, removed_bound)
-                            }) {
+                            if removed_dual_bound
+                                .is_none_or(|removed_bound| dp.is_better_cost(bound, removed_bound))
+                            {
                                 removed_dual_bound = Some(bound);
                             }
                         }
@@ -413,7 +410,12 @@ mod tests {
         let node_constructor = |_: &mut _, state, cost, transition, parent: &MockNode, _| {
             let mut transitions = parent.3.clone();
             transitions.push(transition);
-            Some(MockNode(state, cost, atomic::AtomicBool::new(false), transitions))
+            Some(MockNode(
+                state,
+                cost,
+                atomic::AtomicBool::new(false),
+                transitions,
+            ))
         };
         let solution_checker = |dp: &mut MockDp, node: &MockNode| {
             dp.get_base_cost(node.get_state(dp)).map(|cost| {
@@ -435,11 +437,11 @@ mod tests {
 
         let result = shared_beam_search(
             &dp,
-            root_node, 
-            node_constructor, 
-            solution_checker, 
-            &parameters, 
-            8
+            root_node,
+            node_constructor,
+            solution_checker,
+            &parameters,
+            8,
         );
         assert!(result.is_ok());
         let solution = result.unwrap();
@@ -462,7 +464,12 @@ mod tests {
         let node_constructor = |_: &mut _, state, cost, transition, parent: &MockNode, _| {
             let mut transitions = parent.3.clone();
             transitions.push(transition);
-            Some(MockNode(state, cost, atomic::AtomicBool::new(false), transitions))
+            Some(MockNode(
+                state,
+                cost,
+                atomic::AtomicBool::new(false),
+                transitions,
+            ))
         };
         let solution_checker = |dp: &mut MockDp, node: &MockNode| {
             dp.get_base_cost(node.get_state(dp)).map(|cost| {
@@ -485,11 +492,11 @@ mod tests {
 
         let result = shared_beam_search(
             &dp,
-            root_node, 
-            node_constructor, 
-            solution_checker, 
-            &parameters, 
-            8
+            root_node,
+            node_constructor,
+            solution_checker,
+            &parameters,
+            8,
         );
         assert!(result.is_ok());
         let solution = result.unwrap();

@@ -1,5 +1,5 @@
-use super::id_tree::{IdTree, Sequence};
 use super::SearchNode;
+use super::id_tree::{IdTree, Sequence};
 use crate::dp::{DpMut, OptimizationMode};
 use std::cell::Cell;
 use std::cmp::Ordering;
@@ -46,10 +46,7 @@ where
                 OptimizationMode::Maximization => cost,
             },
             closed: Cell::new(false),
-            transition_tree: P::from(T::create_child(
-                self.transition_tree.clone(),
-                transition,
-            )),
+            transition_tree: P::from(T::create_child(self.transition_tree.clone(), transition)),
             _phantom: PhantomData,
         }
     }
@@ -77,7 +74,7 @@ where
     D: DpMut<State = S, CostType = C, Label = L>,
     C: Copy + Neg<Output = C>,
     T: Sequence<L, P>,
-    P: Deref<Target=T>,
+    P: Deref<Target = T>,
 {
     type DpData = D;
     type State = S;
