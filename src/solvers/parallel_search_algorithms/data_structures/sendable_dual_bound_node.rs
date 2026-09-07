@@ -99,7 +99,10 @@ where
             h,
             f,
             closed: atomic::AtomicBool::new(false),
-            transition_tree: Arc::new(ArcIdTree::<L>::create_child(self.transition_tree.clone(), transition)),
+            transition_tree: Arc::new(ArcIdTree::<L>::create_child(
+                self.transition_tree.clone(),
+                transition,
+            )),
             _phantom: PhantomData,
         })
     }

@@ -14,10 +14,10 @@ use std::{cmp, iter, mem, thread};
 /// Performs hash distributed beam search 1 (HDBS1).
 ///
 /// It keeps the best `beam_size` nodes at each layer.
-/// 
+///
 /// Type parameter `N` is a node type that implements `SearchNode`, and type parameter `M` is a node message type that is sendable
 /// and can be transformed into a `N` node.
-/// 
+///
 /// `node_constructor` is a function that constructs a new search node from the given state,
 /// cost, transition, parent node, and primal bound.
 ///

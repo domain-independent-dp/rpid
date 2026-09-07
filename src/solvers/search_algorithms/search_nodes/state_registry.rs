@@ -258,7 +258,8 @@ mod tests {
 
         let state = (7, 7, 7);
         let cost = 7;
-        let node: CostNode<MockDp, (i32, i32, i32), i32, usize> = CostNode::create_root(&dp, state, cost);
+        let node: CostNode<MockDp, (i32, i32, i32), i32, usize> =
+            CostNode::create_root(&dp, state, cost);
         let result = registry.insert_if_not_dominated(&mut dp, node);
         assert!(result.inserted.is_some());
         let node = result.inserted.unwrap();
@@ -335,7 +336,8 @@ mod tests {
 
     #[test]
     fn test_insert_with_if_not_dominated() {
-        let mut registry: StateRegistry<i32, CostNode<MockDp, (i32, i32, i32), i32, usize>> = StateRegistry::default();
+        let mut registry: StateRegistry<i32, CostNode<MockDp, (i32, i32, i32), i32, usize>> =
+            StateRegistry::default();
         let mut dp = MockDp;
         let constructor =
             |dp: &mut _, state, cost, _: Option<&_>| Some(CostNode::create_root(dp, state, cost));

@@ -69,7 +69,9 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some((successor_state, weight, transition)) = self.successors.pop() {
-            let successor_cost = self.dp.combine_cost_weights(self.node.get_cost(&self.dp), weight);
+            let successor_cost = self
+                .dp
+                .combine_cost_weights(self.node.get_cost(&self.dp), weight);
             let successor_node = (self.node_constructor)(
                 &mut self.dp,
                 successor_state,
@@ -95,8 +97,7 @@ where
             } else {
                 self.next()
             }
-        }
-        else {
+        } else {
             None
         }
     }

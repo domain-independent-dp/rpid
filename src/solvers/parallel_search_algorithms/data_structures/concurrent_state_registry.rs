@@ -1,10 +1,10 @@
-use crate::solvers::search_algorithms::SearchNode;
 use crate::dp::{Dominance, DpMut};
+use crate::solvers::search_algorithms::SearchNode;
 use dashmap::DashMap;
+use rustc_hash::FxHasher;
 use smallvec::SmallVec;
 use std::cmp::Ordering;
 use std::hash::{BuildHasherDefault, Hash};
-use rustc_hash::FxHasher;
 use std::ops::Deref;
 use std::sync::Arc;
 
@@ -31,13 +31,12 @@ struct ConcurrentRemoveResult<N> {
     same_state_index: Option<usize>,
 }
 
-pub struct ConcurrentStateRegistry<K, N>
-{
+pub struct ConcurrentStateRegistry<K, N> {
     map: DashMap<K, SmallVec<[Arc<N>; 1]>, BuildHasherDefault<FxHasher>>,
 }
 
 impl<K, N> Default for ConcurrentStateRegistry<K, N>
-where 
+where
     K: Eq + Hash,
 {
     /// Creates a new state registry.
@@ -50,7 +49,7 @@ where
 }
 
 impl<K, N, D, S, C> ConcurrentStateRegistry<K, N>
-where 
+where
     K: Eq + Hash,
     N: SearchNode<DpData = D, State = S, CostType = C>,
     D: DpMut<State = S, CostType = C> + Dominance<State = S, Key = K>,
@@ -116,7 +115,7 @@ where
     /// Inserts a node into the registry if it is not dominated by any other node.
     pub fn insert_if_not_dominated(&self, dp: &D, mut node: N) -> ConcurrentInsertionResult<N> {
         let entry = self.map.entry(dp.get_key(node.get_state(dp)));
-        match entry{
+        match entry {
             dashmap::mapref::entry::Entry::Occupied(entry) => {
                 // Update the key of the state by the already stored key to reduce memory usage.
                 dp.update_key(node.get_state_mut(dp), entry.key());
@@ -163,7 +162,7 @@ where
         constructor: impl FnOnce(&mut D, S, C, Option<&N>) -> Option<N>,
     ) -> ConcurrentInsertionResult<N> {
         let entry = self.map.entry(dp.get_key(&state));
-        match entry{
+        match entry {
             dashmap::mapref::entry::Entry::Occupied(entry) => {
                 // Update the key of the state by the already stored key to reduce memory usage.
                 dp.update_key(&mut state, entry.key());
