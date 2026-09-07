@@ -66,12 +66,11 @@ where
 ///
 /// The first field is the time, second is the cost, third is the bound, fourth is the transitions,
 /// fifth is the expanded, and sixth is the generated.
-pub fn run_solver_and_dump_solution_history<S, C, L>(
-    solver: &mut S,
+pub fn run_solver_and_dump_solution_history<C, L>(
+    solver: &mut Box<dyn Search<CostType = C, Label = L>>,
     filename: &str,
 ) -> Result<Solution<C, L>, Box<dyn Error>>
 where
-    S: Search<CostType = C, Label = L>,
     C: Display + Copy,
     L: Display,
 {

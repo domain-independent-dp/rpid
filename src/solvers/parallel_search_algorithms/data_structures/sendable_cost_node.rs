@@ -1,27 +1,25 @@
-use super::id_tree::{IdTree, Sequence};
-use super::SearchNode;
 use crate::dp::{DpMut, OptimizationMode};
-use std::cell::Cell;
+use crate::solvers::parallel_search_algorithms::ArcIdTree;
+use crate::solvers::search_algorithms::{SearchNode, Sequence};
 use std::cmp::Ordering;
 use std::marker::PhantomData;
-use std::ops::{Deref, Neg};
-use std::rc::Rc;
+use std::ops::Neg;
+use std::sync::{Arc, atomic};
 
 /// Node ordered by the cost.
-pub struct CostNode<D, S, C, L, T = IdTree<L>, P = Rc<T>> {
+pub struct SendableCostNode<D, S, C, L> {
     state: S,
     cost: C,
-    closed: Cell<bool>,
-    transition_tree: P,
-    _phantom: PhantomData<(D, L, T)>,
+    closed: atomic::AtomicBool,
+    transition_tree: Arc<ArcIdTree<L>>,
+    _phantom: PhantomData<(D, L)>,
 }
 
-impl<D, S, C, L, T, P> CostNode<D, S, C, L, T, P>
+impl<D, S, C, L> SendableCostNode<D, S, C, L>
 where
     D: DpMut<State = S, CostType = C>,
     C: Neg<Output = C>,
-    T: Default + Sequence<L, P>,
-    P: From<T> + Clone,
+    L: Copy + Default,
 {
     /// Creates a new root node given the state and the cost.
     pub fn create_root(dp: &D, state: S, cost: C) -> Self {
@@ -31,8 +29,8 @@ where
                 OptimizationMode::Minimization => -cost,
                 OptimizationMode::Maximization => cost,
             },
-            closed: Cell::new(false),
-            transition_tree: P::from(T::default()),
+            closed: atomic::AtomicBool::new(false),
+            transition_tree: Arc::new(ArcIdTree::<L>::default()),
             _phantom: PhantomData,
         }
     }
@@ -45,8 +43,8 @@ where
                 OptimizationMode::Minimization => -cost,
                 OptimizationMode::Maximization => cost,
             },
-            closed: Cell::new(false),
-            transition_tree: P::from(T::create_child(
+            closed: atomic::AtomicBool::new(false),
+            transition_tree: Arc::new(ArcIdTree::<L>::create_child(
                 self.transition_tree.clone(),
                 transition,
             )),
@@ -55,29 +53,27 @@ where
     }
 }
 
-impl<D, S, C, L, T, P> Clone for CostNode<D, S, C, L, T, P>
+impl<D, S, C, L> Clone for SendableCostNode<D, S, C, L>
 where
     S: Clone,
     C: Clone,
-    P: Clone,
 {
     fn clone(&self) -> Self {
         Self {
             state: self.state.clone(),
             cost: self.cost.clone(),
-            closed: self.closed.clone(),
+            closed: atomic::AtomicBool::new(self.closed.load(atomic::Ordering::Relaxed)),
             transition_tree: self.transition_tree.clone(),
             _phantom: PhantomData,
         }
     }
 }
 
-impl<D, S, C, L, T, P> SearchNode for CostNode<D, S, C, L, T, P>
+impl<D, S, C, L> SearchNode for SendableCostNode<D, S, C, L>
 where
     D: DpMut<State = S, CostType = C, Label = L>,
     C: Copy + Neg<Output = C>,
-    T: Sequence<L, P>,
-    P: Deref<Target=T>,
+    L: Copy,
 {
     type DpData = D;
     type State = S;
@@ -104,11 +100,11 @@ where
     }
 
     fn is_closed(&self) -> bool {
-        self.closed.get()
+        self.closed.load(atomic::Ordering::Relaxed)
     }
 
     fn close(&self) {
-        self.closed.set(true);
+        self.closed.store(true, atomic::Ordering::Relaxed);
     }
 
     fn get_transitions(&self, _: &D) -> Vec<L> {
@@ -116,7 +112,7 @@ where
     }
 }
 
-impl<D, S, C, L, T, P> PartialEq for CostNode<D, S, C, L, T, P>
+impl<D, S, C, L> PartialEq for SendableCostNode<D, S, C, L>
 where
     C: PartialEq,
 {
@@ -125,9 +121,9 @@ where
     }
 }
 
-impl<D, S, C, L, T, P> Eq for CostNode<D, S, C, L, T, P> where C: Eq {}
+impl<D, S, C, L> Eq for SendableCostNode<D, S, C, L> where C: Eq {}
 
-impl<D, S, C, L, T, P> Ord for CostNode<D, S, C, L, T, P>
+impl<D, S, C, L> Ord for SendableCostNode<D, S, C, L>
 where
     C: Eq + Ord,
 {
@@ -136,7 +132,7 @@ where
     }
 }
 
-impl<D, S, C, L, T, P> PartialOrd for CostNode<D, S, C, L, T, P>
+impl<D, S, C, L> PartialOrd for SendableCostNode<D, S, C, L>
 where
     C: Eq + Ord,
 {
@@ -181,7 +177,7 @@ mod tests {
     #[test]
     fn test_create_root_minimization() {
         let dp = MockDp(OptimizationMode::Minimization);
-        let node = CostNode::<_, _, i32, usize>::create_root(&dp, 0, 1);
+        let node = SendableCostNode::<_, _, i32, usize>::create_root(&dp, 0, 1);
 
         assert_eq!(node.get_state(&dp), &0);
         assert_eq!(node.get_cost(&dp), 1);
@@ -193,7 +189,7 @@ mod tests {
     #[test]
     fn test_create_root_maximization() {
         let dp = MockDp(OptimizationMode::Maximization);
-        let node = CostNode::<_, _, i32, usize>::create_root(&dp, 0, 1);
+        let node = SendableCostNode::<_, _, i32, usize>::create_root(&dp, 0, 1);
 
         assert_eq!(node.get_state(&dp), &0);
         assert_eq!(node.get_cost(&dp), 1);
@@ -205,7 +201,7 @@ mod tests {
     #[test]
     fn test_create_child_minimization() {
         let dp = MockDp(OptimizationMode::Minimization);
-        let parent = CostNode::<_, _, i32, usize>::create_root(&dp, 0, 1);
+        let parent = SendableCostNode::<_, _, i32, usize>::create_root(&dp, 0, 1);
         let child = parent.create_child(&dp, 1, 2, 0);
 
         assert_eq!(child.get_state(&dp), &1);
@@ -218,7 +214,7 @@ mod tests {
     #[test]
     fn test_create_child_maximization() {
         let dp = MockDp(OptimizationMode::Minimization);
-        let parent = CostNode::<_, _, i32, usize>::create_root(&dp, 0, 1);
+        let parent = SendableCostNode::<_, _, i32, usize>::create_root(&dp, 0, 1);
         let child = parent.create_child(&dp, 1, 2, 0);
 
         assert_eq!(child.get_state(&dp), &1);
@@ -231,7 +227,7 @@ mod tests {
     #[test]
     fn test_clone() {
         let dp = MockDp(OptimizationMode::Minimization);
-        let node = CostNode::<_, _, i32, usize>::create_root(&dp, 0, 1);
+        let node = SendableCostNode::<_, _, i32, usize>::create_root(&dp, 0, 1);
         let cloned = node.clone();
         assert_eq!(node.get_state(&dp), cloned.get_state(&dp));
         assert_eq!(node.get_cost(&dp), cloned.get_cost(&dp));
@@ -243,7 +239,7 @@ mod tests {
     #[test]
     fn test_state_mut() {
         let dp = MockDp(OptimizationMode::Minimization);
-        let mut node = CostNode::<_, _, i32, usize>::create_root(&dp, 0, 1);
+        let mut node = SendableCostNode::<_, _, i32, usize>::create_root(&dp, 0, 1);
 
         *node.get_state_mut(&dp) = 1;
         assert_eq!(node.get_state(&dp), &1);
@@ -252,7 +248,7 @@ mod tests {
     #[test]
     fn test_close() {
         let dp = MockDp(OptimizationMode::Minimization);
-        let node = CostNode::<_, _, i32, usize>::create_root(&dp, 0, 1);
+        let node = SendableCostNode::<_, _, i32, usize>::create_root(&dp, 0, 1);
 
         assert!(!node.is_closed());
         node.close();
@@ -262,9 +258,9 @@ mod tests {
     #[test]
     fn test_ord_minimization() {
         let dp = MockDp(OptimizationMode::Minimization);
-        let node1 = CostNode::<_, _, i32, usize>::create_root(&dp, 0, 1);
-        let node2 = CostNode::<_, _, i32, usize>::create_root(&dp, 1, 1);
-        let node3 = CostNode::<_, _, i32, usize>::create_root(&dp, 0, 2);
+        let node1 = SendableCostNode::<_, _, i32, usize>::create_root(&dp, 0, 1);
+        let node2 = SendableCostNode::<_, _, i32, usize>::create_root(&dp, 1, 1);
+        let node3 = SendableCostNode::<_, _, i32, usize>::create_root(&dp, 0, 2);
 
         assert!(node1 == node1);
         assert!(node1 == node2);
@@ -275,9 +271,9 @@ mod tests {
     #[test]
     fn test_ord_maximization() {
         let dp = MockDp(OptimizationMode::Maximization);
-        let node1 = CostNode::<_, _, i32, usize>::create_root(&dp, 0, 1);
-        let node2 = CostNode::<_, _, i32, usize>::create_root(&dp, 1, 1);
-        let node3 = CostNode::<_, _, i32, usize>::create_root(&dp, 0, 2);
+        let node1 = SendableCostNode::<_, _, i32, usize>::create_root(&dp, 0, 1);
+        let node2 = SendableCostNode::<_, _, i32, usize>::create_root(&dp, 1, 1);
+        let node3 = SendableCostNode::<_, _, i32, usize>::create_root(&dp, 0, 2);
 
         assert!(node1 == node1);
         assert!(node1 == node2);

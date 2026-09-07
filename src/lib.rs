@@ -14,10 +14,12 @@
 //! use rpid::prelude::*;
 //! use rpid::solvers;
 //!
+//! #[derive(Clone)]
 //! struct Tsp {
 //!     c: Vec<Vec<i32>>,
 //! }
 //!
+//! #[derive(Clone, Hash)]
 //! struct TspState {
 //!     unvisited: FixedBitSet,
 //!     current: usize,

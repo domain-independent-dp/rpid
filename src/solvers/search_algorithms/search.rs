@@ -6,7 +6,7 @@ use std::hash::Hash;
 use std::rc::Rc;
 
 /// Search parameters.
-#[derive(Default)]
+#[derive(Default, Debug, PartialEq, Clone, Copy)]
 pub struct SearchParameters<C> {
     /// Primal bound, upper/lower bound on the cost for minimization/maximization.
     pub primal_bound: Option<C>,
@@ -192,7 +192,7 @@ where
 
         if let Some(result) = root_node_constructor(&mut dp, primal_bound).map(|node| {
             registry
-                .insert_if_not_dominated(&mut dp, node)
+                .insert_if_not_dominated(&dp, node)
                 .inserted
                 .unwrap()
         }) {

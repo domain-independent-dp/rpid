@@ -8,7 +8,7 @@ mod state_registry;
 pub use crate::dp::DpMut;
 pub use cost_node::CostNode;
 pub use dual_bound_node::DualBoundNode;
-pub use id_tree::IdTree;
+pub use id_tree::{IdTree, Sequence};
 pub use state_registry::{InsertionResult, StateRegistry};
 
 /// Trait for search nodes.

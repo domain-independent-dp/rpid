@@ -1,46 +1,44 @@
-use super::id_tree::{IdTree, Sequence};
-use super::SearchNode;
 use crate::dp::{BoundMut, DpMut, OptimizationMode};
-use std::cell::Cell;
+use crate::solvers::parallel_search_algorithms::ArcIdTree;
+use crate::solvers::search_algorithms::{SearchNode, Sequence};
 use std::cmp::Ordering;
 use std::marker::PhantomData;
-use std::ops::{Deref, Neg};
-use std::rc::Rc;
+use std::ops::Neg;
+use std::sync::{Arc, atomic};
 
 /// Node ordered by the path dual bound (f-value) computed from the state dual bound (h-value).
 ///
 /// Ties are broken by the h-value.
-#[derive(Debug, Clone)]
-pub struct DualBoundNode<D, S, C, L, T = IdTree<L>, P = Rc<T>> {
+#[derive(Debug)]
+pub struct SendableDualBoundNode<D, S, C, L> {
     state: S,
     g: C,
     h: C,
     f: C,
-    closed: Cell<bool>,
-    transition_tree: P,
-    _phantom: PhantomData<(D, L, T)>,
+    closed: atomic::AtomicBool,
+    transition_tree: Arc<ArcIdTree<L>>,
+    _phantom: PhantomData<(D, L)>,
 }
 
-impl<D, S, C, L, T, P> DualBoundNode<D, S, C, L, T, P> {
-    pub fn new(state: S, g: C, h: C, f: C, transition_tree: P) -> Self {
+impl<D, S, C, L> SendableDualBoundNode<D, S, C, L> {
+    pub fn new(state: S, g: C, h: C, f: C, transition_tree: Arc<ArcIdTree<L>>) -> Self {
         Self {
             state,
             g,
             h,
             f,
-            closed: Cell::new(false),
+            closed: atomic::AtomicBool::new(false),
             transition_tree,
             _phantom: PhantomData,
         }
     }
 }
 
-impl<D, S, C, L, T, P> DualBoundNode<D, S, C, L, T, P>
+impl<D, S, C, L> SendableDualBoundNode<D, S, C, L>
 where
     D: DpMut<State = S, CostType = C> + BoundMut<State = S, CostType = C>,
     C: Copy + Neg<Output = C>,
-    T: Default + Sequence<L, P>,
-    P: From<T> + Clone,
+    L: Copy + Default,
 {
     fn compute_h_and_f(dp: &D, g: C, h: C, primal_bound: Option<C>) -> Option<(C, C)> {
         let f = dp.combine_cost_weights(g, h);
@@ -69,8 +67,8 @@ where
             g: cost,
             h,
             f,
-            closed: Cell::new(false),
-            transition_tree: P::from(T::default()),
+            closed: atomic::AtomicBool::new(false),
+            transition_tree: Arc::new(ArcIdTree::<L>::default()),
             _phantom: PhantomData,
         })
     }
@@ -100,14 +98,14 @@ where
             g: cost,
             h,
             f,
-            closed: Cell::new(false),
-            transition_tree: P::from(T::create_child(self.transition_tree.clone(), transition)),
+            closed: atomic::AtomicBool::new(false),
+            transition_tree: Arc::new(ArcIdTree::<L>::create_child(self.transition_tree.clone(), transition)),
             _phantom: PhantomData,
         })
     }
 }
 
-impl<D, S, C, L, T, P> PartialEq for DualBoundNode<D, S, C, L, T, P>
+impl<D, S, C, L> PartialEq for SendableDualBoundNode<D, S, C, L>
 where
     C: PartialEq,
 {
@@ -116,9 +114,9 @@ where
     }
 }
 
-impl<D, S, C, L, T, P> Eq for DualBoundNode<D, S, C, L, T, P> where C: Eq {}
+impl<D, S, C, L> Eq for SendableDualBoundNode<D, S, C, L> where C: Eq {}
 
-impl<D, S, C, L, T, P> Ord for DualBoundNode<D, S, C, L, T, P>
+impl<D, S, C, L> Ord for SendableDualBoundNode<D, S, C, L>
 where
     C: Eq + Ord,
 {
@@ -130,7 +128,7 @@ where
     }
 }
 
-impl<D, S, C, L, T, P> PartialOrd for DualBoundNode<D, S, C, L, T, P>
+impl<D, S, C, L> PartialOrd for SendableDualBoundNode<D, S, C, L>
 where
     C: Eq + Ord,
 {
@@ -139,12 +137,11 @@ where
     }
 }
 
-impl<D, S, C, L, T, P> SearchNode for DualBoundNode<D, S, C, L, T, P>
+impl<D, S, C, L> SearchNode for SendableDualBoundNode<D, S, C, L>
 where
     D: DpMut<State = S, CostType = C>,
     C: Copy + Neg<Output = C>,
-    T: Sequence<L, P>,
-    P: Deref<Target = T>,
+    L: Copy,
 {
     type DpData = D;
     type State = S;
@@ -171,11 +168,11 @@ where
     }
 
     fn is_closed(&self) -> bool {
-        self.closed.get()
+        self.closed.load(atomic::Ordering::Relaxed)
     }
 
     fn close(&self) {
-        self.closed.set(true);
+        self.closed.store(true, atomic::Ordering::Relaxed);
     }
 
     fn get_transitions(&self, _: &D) -> Vec<L> {
@@ -237,7 +234,7 @@ mod tests {
     #[test]
     fn test_create_root_minimization() {
         let mut dp = MockDp(OptimizationMode::Minimization);
-        let node = DualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 0, 1, None);
+        let node = SendableDualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 0, 1, None);
 
         assert!(node.is_some());
         let node = node.unwrap();
@@ -251,7 +248,7 @@ mod tests {
     #[test]
     fn test_create_root_none_minimization() {
         let mut dp = MockDp(OptimizationMode::Minimization);
-        let node = DualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 6, 1, None);
+        let node = SendableDualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 6, 1, None);
 
         assert!(node.is_none());
     }
@@ -259,7 +256,7 @@ mod tests {
     #[test]
     fn test_create_root_with_primal_bound_minimization() {
         let mut dp = MockDp(OptimizationMode::Minimization);
-        let node = DualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 0, 1, Some(5));
+        let node = SendableDualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 0, 1, Some(5));
 
         assert!(node.is_some());
         let node = node.unwrap();
@@ -273,7 +270,7 @@ mod tests {
     #[test]
     fn test_create_root_with_primal_bound_none_minimization() {
         let mut dp = MockDp(OptimizationMode::Minimization);
-        let node = DualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 0, 1, Some(4));
+        let node = SendableDualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 0, 1, Some(4));
 
         assert!(node.is_none());
     }
@@ -281,7 +278,7 @@ mod tests {
     #[test]
     fn test_create_root_maximization() {
         let mut dp = MockDp(OptimizationMode::Maximization);
-        let node = DualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 0, 1, None);
+        let node = SendableDualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 0, 1, None);
 
         assert!(node.is_some());
         let node = node.unwrap();
@@ -295,7 +292,7 @@ mod tests {
     #[test]
     fn test_create_root_none_maximization() {
         let mut dp = MockDp(OptimizationMode::Maximization);
-        let node = DualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 6, 1, None);
+        let node = SendableDualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 6, 1, None);
 
         assert!(node.is_none());
     }
@@ -303,7 +300,7 @@ mod tests {
     #[test]
     fn test_create_root_with_primal_bound_maximization() {
         let mut dp = MockDp(OptimizationMode::Maximization);
-        let node = DualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 0, 1, Some(3));
+        let node = SendableDualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 0, 1, Some(3));
 
         assert!(node.is_some());
         let node = node.unwrap();
@@ -317,7 +314,7 @@ mod tests {
     #[test]
     fn test_create_root_with_primal_bound_none_maximization() {
         let mut dp = MockDp(OptimizationMode::Maximization);
-        let node = DualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 0, 1, Some(4));
+        let node = SendableDualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 0, 1, Some(4));
 
         assert!(node.is_none());
     }
@@ -325,7 +322,7 @@ mod tests {
     #[test]
     fn test_create_child_minimization() {
         let mut dp = MockDp(OptimizationMode::Minimization);
-        let node = DualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 0, 1, None);
+        let node = SendableDualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 0, 1, None);
         assert!(node.is_some());
         let node = node.unwrap();
         let child = node.create_child(&mut dp, 1, 2, 0, None, None);
@@ -342,7 +339,7 @@ mod tests {
     #[test]
     fn test_create_child_none_minimization() {
         let mut dp = MockDp(OptimizationMode::Minimization);
-        let node = DualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 0, 1, None);
+        let node = SendableDualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 0, 1, None);
         assert!(node.is_some());
         let node = node.unwrap();
         let child = node.create_child(&mut dp, 6, 2, 0, None, None);
@@ -353,7 +350,7 @@ mod tests {
     #[test]
     fn test_create_child_with_primal_bound_minimization() {
         let mut dp = MockDp(OptimizationMode::Minimization);
-        let node = DualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 0, 1, None);
+        let node = SendableDualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 0, 1, None);
         assert!(node.is_some());
         let node = node.unwrap();
         let child = node.create_child(&mut dp, 1, 2, 0, Some(5), None);
@@ -370,7 +367,7 @@ mod tests {
     #[test]
     fn test_create_child_with_primal_bound_none_minimization() {
         let mut dp = MockDp(OptimizationMode::Minimization);
-        let node = DualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 0, 1, None);
+        let node = SendableDualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 0, 1, None);
         assert!(node.is_some());
         let node = node.unwrap();
         let child = node.create_child(&mut dp, 1, 2, 0, Some(4), None);
@@ -381,10 +378,10 @@ mod tests {
     #[test]
     fn test_create_child_with_other_minimization() {
         let mut dp = MockDp(OptimizationMode::Minimization);
-        let node = DualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 0, 1, None);
+        let node = SendableDualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 0, 1, None);
         assert!(node.is_some());
         let node = node.unwrap();
-        let other = DualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 1, 3, None);
+        let other = SendableDualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 1, 3, None);
         assert!(other.is_some());
         let other = other.unwrap();
         let child = node.create_child(&mut dp, 1, 2, 0, None, Some(&other));
@@ -401,7 +398,7 @@ mod tests {
     #[test]
     fn test_create_child_maximization() {
         let mut dp = MockDp(OptimizationMode::Maximization);
-        let node = DualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 0, 1, None);
+        let node = SendableDualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 0, 1, None);
         assert!(node.is_some());
         let node = node.unwrap();
         let child = node.create_child(&mut dp, 1, 2, 0, None, None);
@@ -418,7 +415,7 @@ mod tests {
     #[test]
     fn test_create_child_none_maximization() {
         let mut dp = MockDp(OptimizationMode::Maximization);
-        let node = DualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 0, 1, None);
+        let node = SendableDualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 0, 1, None);
         assert!(node.is_some());
         let node = node.unwrap();
         let child = node.create_child(&mut dp, 6, 2, 0, None, None);
@@ -429,7 +426,7 @@ mod tests {
     #[test]
     fn test_create_child_with_primal_bound_maximization() {
         let mut dp = MockDp(OptimizationMode::Maximization);
-        let node = DualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 0, 1, None);
+        let node = SendableDualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 0, 1, None);
         assert!(node.is_some());
         let node = node.unwrap();
         let child = node.create_child(&mut dp, 1, 2, 0, Some(3), None);
@@ -446,7 +443,7 @@ mod tests {
     #[test]
     fn test_create_child_with_primal_bound_none_maximization() {
         let mut dp = MockDp(OptimizationMode::Maximization);
-        let node = DualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 0, 1, None);
+        let node = SendableDualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 0, 1, None);
         assert!(node.is_some());
         let node = node.unwrap();
         let child = node.create_child(&mut dp, 1, 2, 0, Some(4), None);
@@ -457,10 +454,10 @@ mod tests {
     #[test]
     fn test_create_child_with_other_maximization() {
         let mut dp = MockDp(OptimizationMode::Maximization);
-        let node = DualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 0, 1, None);
+        let node = SendableDualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 0, 1, None);
         assert!(node.is_some());
         let node = node.unwrap();
-        let other = DualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 1, 3, None);
+        let other = SendableDualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 1, 3, None);
         assert!(other.is_some());
         let other = other.unwrap();
         let child = node.create_child(&mut dp, 1, 2, 0, None, Some(&other));
@@ -477,7 +474,7 @@ mod tests {
     #[test]
     fn test_state_mut() {
         let mut dp = MockDp(OptimizationMode::Minimization);
-        let node = DualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 0, 1, None);
+        let node = SendableDualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 0, 1, None);
         assert!(node.is_some());
         let mut node = node.unwrap();
 
@@ -488,7 +485,7 @@ mod tests {
     #[test]
     fn test_close() {
         let mut dp = MockDp(OptimizationMode::Minimization);
-        let node = DualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 0, 1, None);
+        let node = SendableDualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 0, 1, None);
         assert!(node.is_some());
         let node = node.unwrap();
 
@@ -500,16 +497,16 @@ mod tests {
     #[test]
     fn test_ord_minimization() {
         let mut dp = MockDp(OptimizationMode::Minimization);
-        let node1 = DualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 3, 2, None);
+        let node1 = SendableDualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 3, 2, None);
         assert!(node1.is_some());
         let node1 = node1.unwrap();
-        let node2 = DualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 4, 2, None);
+        let node2 = SendableDualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 4, 2, None);
         assert!(node2.is_some());
         let node2 = node2.unwrap();
-        let node3 = DualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 2, 1, None);
+        let node3 = SendableDualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 2, 1, None);
         assert!(node3.is_some());
         let node3 = node3.unwrap();
-        let node4 = DualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 2, 0, None);
+        let node4 = SendableDualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 2, 0, None);
         assert!(node4.is_some());
         let node4 = node4.unwrap();
 
@@ -524,16 +521,16 @@ mod tests {
     #[test]
     fn test_ord_maximization() {
         let mut dp = MockDp(OptimizationMode::Maximization);
-        let node1 = DualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 3, 2, None);
+        let node1 = SendableDualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 3, 2, None);
         assert!(node1.is_some());
         let node1 = node1.unwrap();
-        let node2 = DualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 4, 2, None);
+        let node2 = SendableDualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 4, 2, None);
         assert!(node2.is_some());
         let node2 = node2.unwrap();
-        let node3 = DualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 2, 1, None);
+        let node3 = SendableDualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 2, 1, None);
         assert!(node3.is_some());
         let node3 = node3.unwrap();
-        let node4 = DualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 2, 0, None);
+        let node4 = SendableDualBoundNode::<_, _, i32, usize>::create_root(&mut dp, 2, 0, None);
         assert!(node4.is_some());
         let node4 = node4.unwrap();
 

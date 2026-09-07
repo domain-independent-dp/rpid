@@ -111,7 +111,7 @@ where
     /// Inserts the given node into the beam.
     pub fn insert(
         &mut self,
-        dp: &mut D,
+        dp: &D,
         node: N,
         registry: &mut StateRegistry<K, N>,
     ) -> BeamInsertionResult<N> {
@@ -162,6 +162,7 @@ where
 }
 
 /// Parameters for beam search.
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub struct BeamSearchParameters<C> {
     /// Beam width.
     pub beam_width: usize,

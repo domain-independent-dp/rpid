@@ -1,24 +1,19 @@
-use std::rc::Rc;
-
-pub trait Sequence<L, P> {
-    fn create_child(node: P, id: L) -> Self;
-
-    fn get_path(&self) -> Vec<L>;
-}
+use crate::solvers::search_algorithms::Sequence;
+use std::sync::Arc;
 
 /// Tree data structure to store a sequence of ids.
 #[derive(Clone, Debug, Default)]
-pub struct IdTree<L> {
-    id: Option<L>,
-    parent: Option<Rc<Self>>,
+pub struct ArcIdTree<T> {
+    id: Option<T>,
+    parent: Option<Arc<Self>>,
 }
 
-impl<L> Sequence<L, Rc<IdTree<L>>> for IdTree<L>
+impl<L> Sequence<L, Arc<ArcIdTree<L>>> for ArcIdTree<L>
 where
     L: Copy,
 {
     /// Creates a child node.
-    fn create_child(node: Rc<Self>, id: L) -> Self {
+    fn create_child(node: Arc<Self>, id: L) -> Self {
         Self {
             id: Some(id),
             parent: Some(node.clone()),
@@ -47,10 +42,10 @@ mod tests {
 
     #[test]
     fn test_id_tree() {
-        let node = Rc::new(IdTree::default());
-        let node = Rc::new(IdTree::create_child(node.clone(), 1));
-        let node = Rc::new(IdTree::create_child(node.clone(), 2));
-        let node = Rc::new(IdTree::create_child(node.clone(), 3));
+        let node = Arc::new(ArcIdTree::default());
+        let node = Arc::new(ArcIdTree::create_child(node.clone(), 1));
+        let node = Arc::new(ArcIdTree::create_child(node.clone(), 2));
+        let node = Arc::new(ArcIdTree::create_child(node.clone(), 3));
 
         assert_eq!(node.get_path(), vec![1, 2, 3]);
     }

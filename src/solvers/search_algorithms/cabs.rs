@@ -216,6 +216,7 @@ where
 
                 if solution.is_optimal {
                     self.solution.is_optimal = true;
+                    self.solution.best_bound = Some(cost);
                     self.is_terminated = true;
                 } else {
                     self.beam_width *= 2;
