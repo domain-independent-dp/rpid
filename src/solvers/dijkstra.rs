@@ -129,8 +129,6 @@ mod tests {
     use super::*;
     use crate::Solution;
     use crate::dp::Dp;
-    use std::cell::Cell;
-    use std::cmp::Ordering;
 
     #[derive(PartialEq, Eq)]
     struct MockDp(i32);
@@ -162,63 +160,6 @@ mod tests {
 
         fn get_key(&self, state: &Self::State) -> Self::Key {
             *state
-        }
-    }
-
-    struct MockNode(i32, i32, Cell<bool>, Vec<usize>);
-
-    impl SearchNode for MockNode {
-        type DpData = MockDp;
-        type State = i32;
-        type CostType = i32;
-        type Label = usize;
-
-        fn get_state(&self, _: &Self::DpData) -> &Self::State {
-            &self.0
-        }
-
-        fn get_state_mut(&mut self, _: &Self::DpData) -> &mut Self::State {
-            &mut self.0
-        }
-
-        fn get_cost(&self, _: &Self::DpData) -> Self::CostType {
-            self.1
-        }
-
-        fn get_bound(&self, _: &Self::DpData) -> Option<Self::CostType> {
-            None
-        }
-
-        fn close(&self) {
-            self.2.set(true)
-        }
-
-        fn is_closed(&self) -> bool {
-            self.2.get()
-        }
-
-        fn get_transitions(&self, _: &Self::DpData) -> Vec<Self::Label> {
-            self.3.clone()
-        }
-    }
-
-    impl PartialEq for MockNode {
-        fn eq(&self, other: &Self) -> bool {
-            self.1 == other.1
-        }
-    }
-
-    impl Eq for MockNode {}
-
-    impl Ord for MockNode {
-        fn cmp(&self, other: &Self) -> Ordering {
-            other.1.cmp(&self.1)
-        }
-    }
-
-    impl PartialOrd for MockNode {
-        fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-            Some(self.cmp(other))
         }
     }
 

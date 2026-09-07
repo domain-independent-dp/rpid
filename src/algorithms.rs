@@ -166,24 +166,28 @@ where
     let n = distance.len();
 
     for k in 0..n {
-        for i in 0..n {
-            if i == k {
-                continue;
-            }
+        let (rows_before_k, rows_from_k) = distance.split_at_mut(k);
+        let (row_k, rows_after_k) = rows_from_k.split_first_mut().unwrap();
+        let rows_before_k = rows_before_k.iter_mut().enumerate();
+        let rows_after_k = rows_after_k
+            .iter_mut()
+            .enumerate()
+            .map(|(i, row)| (i + k + 1, row));
 
-            if let Some(d_ik) = distance[i][k] {
-                for j in 0..n {
+        for (i, row_i) in rows_before_k.chain(rows_after_k) {
+            if let Some(d_ik) = row_i[k] {
+                for (j, d_ij) in row_i.iter_mut().enumerate() {
                     if j == i || j == k {
                         continue;
                     }
 
-                    if let Some(d_kj) = distance[k][j] {
-                        if let Some(d_ij) = distance[i][j] {
-                            if d_ik + d_kj < d_ij {
-                                distance[i][j] = Some(d_ik + d_kj);
+                    if let Some(d_kj) = row_k[j] {
+                        if let Some(current) = *d_ij {
+                            if d_ik + d_kj < current {
+                                *d_ij = Some(d_ik + d_kj);
                             }
                         } else {
-                            distance[i][j] = Some(d_ik + d_kj);
+                            *d_ij = Some(d_ik + d_kj);
                         }
                     }
                 }
