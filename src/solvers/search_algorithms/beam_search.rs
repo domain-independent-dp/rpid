@@ -45,13 +45,17 @@ where
     type Item = Rc<N>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match self.iter.next() {
-            Some(node) if node.0.is_closed() => self.next(),
-            Some(node) => {
-                node.0.close();
-                Some(node.0)
+        loop {
+            match self.iter.next() {
+                Some(node) if node.0.is_closed() => continue,
+
+                Some(node) => {
+                    node.0.close();
+                    return Some(node.0);
+                }
+
+                None => return None,
             }
-            None => None,
         }
     }
 }
